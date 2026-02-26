@@ -71,7 +71,12 @@ class VerdictEngine:
         all_files = diff.file_paths
 
         if not all_files:
-            return self._empty_report(str(repo), ref_before, ref_after)
+            report = self._empty_report(str(repo), ref_before, ref_after)
+            self._store.save_assessment(report)
+            return report
+
+        # Track which dimensions are actually evaluated
+        evaluated = {"static", "sentinel_risk", "co_change"}
 
         # Step 2: Baseline
         baseline = None
@@ -79,6 +84,7 @@ class VerdictEngine:
         if not self._skip_baseline and py_files:
             baseline = run_baseline(repo, self._test_cmd, self._baseline_runs)
             baseline_score = compute_baseline_score(baseline)
+            evaluated.add("baseline")
 
         # Step 3: Mutate
         mutations = []
@@ -86,10 +92,14 @@ class VerdictEngine:
         if not self._skip_mutations and py_files:
             mutations = run_mutations(repo, py_files, self._mutation_timeout)
             mutation_score = compute_mutation_score(mutations)
+            evaluated.add("mutation")
 
-        # Step 4: Static analysis
-        static_findings = run_static_analysis(repo, py_files, self._static_timeout)
-        static_score = compute_static_score(static_findings, max(len(py_files), 1))
+        # Step 4: Static analysis (only if Python files changed)
+        static_findings = []
+        static_score = 100.0
+        if py_files:
+            static_findings = run_static_analysis(repo, py_files, self._static_timeout)
+            static_score = compute_static_score(static_findings, len(py_files))
 
         # Step 5: Sentinel
         with SentinelBridge(repo) as bridge:
@@ -113,6 +123,7 @@ class VerdictEngine:
             static_findings=static_findings,
             baseline=baseline,
             sentinel_signals=sentinel_signals,
+            evaluated_dimensions=evaluated,
         )
 
         # Step 7: Persist

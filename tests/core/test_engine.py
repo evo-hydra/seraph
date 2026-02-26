@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
+from verdict.core.differ import DiffResult, FileChange
 from verdict.core.engine import VerdictEngine
 from verdict.core.store import VerdictStore
 from verdict.models.assessment import MutationResult, BaselineResult
@@ -21,6 +22,12 @@ class TestVerdictEngine:
         assert report.overall_score == 100.0
         assert report.files_changed == []
 
+    def test_empty_diff_is_persisted(self, store: VerdictStore, tmp_repo: Path):
+        engine = VerdictEngine(store, skip_baseline=True, skip_mutations=True)
+        report = engine.assess(tmp_repo)
+        saved = store.get_assessment(report.id)
+        assert saved is not None
+
     @patch("verdict.core.engine.run_static_analysis")
     @patch("verdict.core.engine.run_mutations")
     @patch("verdict.core.engine.run_baseline")
@@ -29,8 +36,6 @@ class TestVerdictEngine:
         self, mock_diff, mock_baseline, mock_mutate, mock_static,
         store: VerdictStore, tmp_repo: Path
     ):
-        from verdict.core.differ import DiffResult, FileChange
-
         mock_diff.return_value = DiffResult(
             files=[FileChange(path="src/foo.py")],
         )
@@ -50,6 +55,10 @@ class TestVerdictEngine:
         assert report.files_changed == ["src/foo.py"]
         assert report.overall_grade == Grade.A
 
+        # All dimensions should be evaluated
+        evaluated = [d for d in report.dimensions if d.evaluated]
+        assert len(evaluated) == 5
+
         # Verify persisted
         saved = store.get_assessment(report.id)
         assert saved is not None
@@ -68,11 +77,40 @@ class TestVerdictEngine:
         assert "new.py" in report.files_changed
         assert report.mutation_score == 100.0  # Skipped = perfect
 
+        # Baseline and mutation should NOT be evaluated
+        evaluated_names = {d.name for d in report.dimensions if d.evaluated}
+        assert "Mutation Score" not in evaluated_names
+        assert "Test Baseline" not in evaluated_names
+        # Static, sentinel, co-change should still be evaluated
+        assert "Static Cleanliness" in evaluated_names
+        assert "Sentinel Risk" in evaluated_names
+        assert "Co-change Coverage" in evaluated_names
+
+    @patch("verdict.core.engine.run_static_analysis")
+    @patch("verdict.core.engine.parse_diff")
+    def test_non_python_only_skips_heavy_steps(
+        self, mock_diff, mock_static,
+        store: VerdictStore, tmp_repo: Path
+    ):
+        """Only non-Python files changed: baseline, mutation, static are skipped."""
+        mock_diff.return_value = DiffResult(
+            files=[FileChange(path="README.md")],
+        )
+
+        engine = VerdictEngine(store, skip_baseline=False, skip_mutations=False)
+        report = engine.assess(tmp_repo)
+
+        assert report.files_changed == ["README.md"]
+        # Static analysis should not have been called (no py_files)
+        mock_static.assert_not_called()
+        # Baseline and mutation not evaluated (no py_files)
+        evaluated_names = {d.name for d in report.dimensions if d.evaluated}
+        assert "Mutation Score" not in evaluated_names
+        assert "Test Baseline" not in evaluated_names
+
     @patch("verdict.core.engine.run_mutations")
     @patch("verdict.core.engine.parse_diff")
     def test_mutate_only(self, mock_diff, mock_mutate, store: VerdictStore, tmp_repo: Path):
-        from verdict.core.differ import DiffResult, FileChange
-
         mock_diff.return_value = DiffResult(
             files=[FileChange(path="foo.py")],
         )

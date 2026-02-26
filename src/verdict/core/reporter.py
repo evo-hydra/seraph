@@ -233,7 +233,7 @@ def _identify_gaps(dimensions: list[DimensionScore]) -> list[str]:
 
 def _mutation_details(mutations: list[MutationResult]) -> str:
     if not mutations:
-        return "No mutants generated"
+        return "No mutations (skipped or no mutable code)"
     total = len(mutations)
     killed = sum(1 for m in mutations if m.status == MutantStatus.KILLED)
     survived = total - killed
