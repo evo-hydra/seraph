@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 # Approximate 4K tokens ≈ 16K chars
 MAX_OUTPUT_CHARS = 16_000
 
@@ -20,9 +18,12 @@ def format_assessment(report_dict: dict) -> str:
     # Dimensions
     lines.append("### Dimensions")
     for dim in report_dict.get("dimensions", []):
-        lines.append(
-            f"- **{dim['name']}**: {dim['grade']} ({dim['raw_score']}%) — {dim['details']}"
-        )
+        if dim.get("evaluated", True):
+            lines.append(
+                f"- **{dim['name']}**: {dim['grade']} ({dim['raw_score']}%) — {dim['details']}"
+            )
+        else:
+            lines.append(f"- **{dim['name']}**: N/A (not evaluated)")
     lines.append("")
 
     # Gaps
@@ -75,8 +76,11 @@ def format_history(assessments: list) -> str:
     return _truncate("\n".join(lines))
 
 
-def format_mutations(mutations: list[dict], score: float) -> str:
-    """Format mutation results for LLM consumption."""
+def format_mutations(mutations: list, score: float) -> str:
+    """Format mutation results for LLM consumption.
+
+    Accepts list of MutationResult dataclasses.
+    """
     if not mutations:
         return "No mutation results. Score: 100%"
 
@@ -87,15 +91,15 @@ def format_mutations(mutations: list[dict], score: float) -> str:
     lines.append("")
 
     # Group by status
-    by_status: dict[str, list[dict]] = {}
+    by_status: dict[str, list] = {}
     for m in mutations:
-        status = m.get("status", "unknown")
+        status = m.status.value if hasattr(m.status, "value") else str(m.status)
         by_status.setdefault(status, []).append(m)
 
     for status, muts in sorted(by_status.items()):
         lines.append(f"### {status.title()} ({len(muts)})")
         for m in muts[:10]:
-            lines.append(f"- {m.get('file_path', '?')}:{m.get('line_number', '?')} [{m.get('operator', '?')}]")
+            lines.append(f"- {m.file_path}:{m.line_number or '?'} [{m.operator}]")
         if len(muts) > 10:
             lines.append(f"- ... and {len(muts) - 10} more")
         lines.append("")

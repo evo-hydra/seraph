@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from verdict.core.baseline import _parse_pytest_failures, run_baseline
+from verdict.core.baseline import _parse_test_failures, run_baseline
 
 
 class TestParsePytestFailures:
@@ -16,7 +16,7 @@ class TestParsePytestFailures:
 tests/test_a.py::test_one PASSED
 tests/test_a.py::test_two PASSED
 """
-        assert _parse_pytest_failures(output) == set()
+        assert _parse_test_failures(output) == set()
 
     def test_with_failures(self):
         output = """\
@@ -24,11 +24,11 @@ tests/test_a.py::test_one PASSED
 tests/test_a.py::test_two FAILED
 tests/test_b.py::test_three FAILED
 """
-        result = _parse_pytest_failures(output)
+        result = _parse_test_failures(output)
         assert result == {"tests/test_a.py::test_two", "tests/test_b.py::test_three"}
 
     def test_empty_output(self):
-        assert _parse_pytest_failures("") == set()
+        assert _parse_test_failures("") == set()
 
 
 class TestRunBaseline:

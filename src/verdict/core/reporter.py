@@ -165,9 +165,6 @@ def build_report(
     if evaluated_dims:
         total_weight = sum(d.weight for d in evaluated_dims)
         if total_weight > 0:
-            overall_score = sum(d.raw_score * d.weight for d in evaluated_dims) / total_weight * 1.0
-            # Normalize: weighted scores were computed with original weights,
-            # but we need the overall to reflect the re-weighted sum
             overall_score = sum(d.raw_score * (d.weight / total_weight) for d in evaluated_dims)
         else:
             overall_score = 100.0

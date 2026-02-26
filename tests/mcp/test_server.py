@@ -67,9 +67,11 @@ class TestFormatMutations:
         assert "100%" in output
 
     def test_with_mutations(self):
+        from verdict.models.assessment import MutationResult
+        from verdict.models.enums import MutantStatus
         muts = [
-            {"file_path": "foo.py", "line_number": 5, "operator": "negate", "status": "survived"},
-            {"file_path": "foo.py", "line_number": 10, "operator": "remove", "status": "killed"},
+            MutationResult(file_path="foo.py", line_number=5, operator="negate", status=MutantStatus.SURVIVED),
+            MutationResult(file_path="foo.py", line_number=10, operator="remove", status=MutantStatus.KILLED),
         ]
         output = format_mutations(muts, 50.0)
         assert "50.0%" in output

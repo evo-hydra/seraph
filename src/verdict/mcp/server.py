@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
@@ -98,12 +97,7 @@ def create_server():
                 ref_before=ref_before or None,
                 ref_after=ref_after or None,
             )
-            return format_mutations(
-                [{"file_path": m.file_path, "line_number": m.line_number,
-                  "operator": m.operator, "status": m.status.value}
-                 for m in report.mutations],
-                report.mutation_score,
-            )
+            return format_mutations(report.mutations, report.mutation_score)
         finally:
             store.close()
 

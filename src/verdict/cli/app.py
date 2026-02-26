@@ -12,7 +12,7 @@ from rich.table import Table
 
 from verdict.core.engine import VerdictEngine
 from verdict.core.store import VerdictStore
-from verdict.models.assessment import Feedback
+from verdict.models.assessment import AssessmentReport, Feedback
 from verdict.models.enums import FeedbackOutcome
 
 app = typer.Typer(
@@ -140,7 +140,7 @@ def feedback(
         store.close()
 
 
-def _display_report(report) -> None:
+def _display_report(report: "AssessmentReport") -> None:
     """Display a rich-formatted assessment report."""
     grade_style = _grade_color(report.overall_grade.value)
 
@@ -161,14 +161,17 @@ def _display_report(report) -> None:
     table.add_column("Details")
 
     for d in report.dimensions:
-        style = _grade_color(d.grade.value)
-        table.add_row(
-            d.name,
-            f"[{style}]{d.grade.value}[/{style}]",
-            f"{d.raw_score}%",
-            f"{int(d.weight * 100)}%",
-            d.details,
-        )
+        if d.evaluated:
+            style = _grade_color(d.grade.value)
+            table.add_row(
+                d.name,
+                f"[{style}]{d.grade.value}[/{style}]",
+                f"{d.raw_score}%",
+                f"{int(d.weight * 100)}%",
+                d.details,
+            )
+        else:
+            table.add_row(d.name, "[dim]N/A[/dim]", "—", f"{int(d.weight * 100)}%", "[dim]Not evaluated[/dim]")
 
     console.print(table)
 

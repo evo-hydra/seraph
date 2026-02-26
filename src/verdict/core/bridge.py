@@ -85,14 +85,7 @@ class SentinelBridge:
             if hasattr(pitfall, "file_paths") and pitfall.file_paths:
                 file_path_hits = [f for f in pitfall.file_paths if f in changed_set]
                 if file_path_hits:
-                    matches.append(PitfallMatch(
-                        pitfall_id=pitfall.id,
-                        description=pitfall.description,
-                        severity=pitfall.severity.value if hasattr(pitfall.severity, "value") else str(pitfall.severity),
-                        how_to_prevent=pitfall.how_to_prevent,
-                        matched_file=file_path_hits[0],
-                        match_type="file_path",
-                    ))
+                    matches.append(self._make_pitfall_match(pitfall, file_path_hits[0], "file_path"))
                     continue
 
             # Fall back to code_pattern regex matching
@@ -110,18 +103,24 @@ class SentinelBridge:
                 try:
                     content = full_path.read_text(errors="replace")
                     if pattern.search(content):
-                        matches.append(PitfallMatch(
-                            pitfall_id=pitfall.id,
-                            description=pitfall.description,
-                            severity=pitfall.severity.value if hasattr(pitfall.severity, "value") else str(pitfall.severity),
-                            how_to_prevent=pitfall.how_to_prevent,
-                            matched_file=file_path,
-                            match_type="code_pattern",
-                        ))
+                        matches.append(self._make_pitfall_match(pitfall, file_path, "code_pattern"))
                 except OSError:
                     continue
 
         return matches
+
+    @staticmethod
+    def _make_pitfall_match(pitfall, matched_file: str, match_type: str) -> PitfallMatch:
+        """Build a PitfallMatch from a Sentinel pitfall object."""
+        severity = pitfall.severity.value if hasattr(pitfall.severity, "value") else str(pitfall.severity)
+        return PitfallMatch(
+            pitfall_id=pitfall.id,
+            description=pitfall.description,
+            severity=severity,
+            how_to_prevent=pitfall.how_to_prevent,
+            matched_file=matched_file,
+            match_type=match_type,
+        )
 
     def _get_hot_files(self, changed_files: list[str]) -> list[HotFileInfo]:
         """Get hot file data for changed files."""

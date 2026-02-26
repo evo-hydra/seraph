@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-from collections import Counter
 from pathlib import Path
 
 from verdict.models.assessment import BaselineResult
@@ -57,8 +56,8 @@ def run_baseline(
 def _run_tests_once(repo_path: Path, test_cmd: str, timeout: int) -> set[str]:
     """Run tests once and return set of failed test IDs."""
     cmd_parts = test_cmd.split()
-    # Add verbose output for test ID parsing
-    if cmd_parts[0] == "pytest" and "-v" not in cmd_parts:
+    # Add verbose output for test ID parsing (works for pytest and python -m pytest)
+    if "pytest" in cmd_parts[-1] and "-v" not in cmd_parts:
         cmd_parts.append("-v")
 
     try:
@@ -72,14 +71,16 @@ def _run_tests_once(repo_path: Path, test_cmd: str, timeout: int) -> set[str]:
     except subprocess.TimeoutExpired:
         return {"__timeout__"}
 
-    return _parse_pytest_failures(result.stdout)
+    return _parse_test_failures(result.stdout)
 
 
-def _parse_pytest_failures(output: str) -> set[str]:
-    """Parse pytest verbose output to extract failed test IDs."""
+def _parse_test_failures(output: str) -> set[str]:
+    """Parse test runner verbose output to extract failed test IDs.
+
+    Supports pytest-style output: 'tests/test_foo.py::test_bar FAILED'
+    """
     failures: set[str] = set()
     for line in output.splitlines():
-        # pytest -v format: "tests/test_foo.py::test_bar FAILED"
         if " FAILED" in line:
             test_id = line.split(" FAILED")[0].strip()
             if test_id:
