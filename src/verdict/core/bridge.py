@@ -55,13 +55,31 @@ class SentinelBridge:
         }
 
     def _match_pitfalls(self, changed_files: list[str]) -> list[dict]:
-        """Match pitfalls against changed files by code_pattern regex."""
+        """Match pitfalls against changed files by file_paths and code_pattern regex."""
         matches: list[dict] = []
         if not self._store:
             return matches
 
         pitfalls = self._store.get_pitfalls(limit=200)
+        changed_set = set(changed_files)
+
         for pitfall in pitfalls:
+            # Match by file_paths association (fast path)
+            file_path_matches = []
+            if hasattr(pitfall, "file_paths") and pitfall.file_paths:
+                file_path_matches = [f for f in pitfall.file_paths if f in changed_set]
+                if file_path_matches:
+                    matches.append({
+                        "pitfall_id": pitfall.id,
+                        "description": pitfall.description,
+                        "severity": pitfall.severity.value if hasattr(pitfall.severity, "value") else str(pitfall.severity),
+                        "how_to_prevent": pitfall.how_to_prevent,
+                        "matched_file": file_path_matches[0],
+                        "match_type": "file_path",
+                    })
+                    continue
+
+            # Fall back to code_pattern regex matching
             if not pitfall.code_pattern:
                 continue
             try:
@@ -82,6 +100,7 @@ class SentinelBridge:
                             "severity": pitfall.severity.value if hasattr(pitfall.severity, "value") else str(pitfall.severity),
                             "how_to_prevent": pitfall.how_to_prevent,
                             "matched_file": file_path,
+                            "match_type": "code_pattern",
                         })
                 except OSError:
                     continue
