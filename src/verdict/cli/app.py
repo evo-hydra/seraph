@@ -25,9 +25,7 @@ console = Console()
 
 def _get_store(repo_path: Path) -> VerdictStore:
     db_path = repo_path / ".verdict" / "verdict.db"
-    store = VerdictStore(db_path)
-    store.open()
-    return store
+    return VerdictStore(db_path)
 
 
 @app.command()
@@ -42,26 +40,29 @@ def assess(
 ) -> None:
     """Run a full assessment on code changes."""
     repo_path = repo_path.resolve()
-    store = _get_store(repo_path)
 
     try:
-        engine = VerdictEngine(
-            store,
-            test_cmd=test_cmd,
-            skip_baseline=skip_baseline,
-            skip_mutations=skip_mutations,
-        )
+        with _get_store(repo_path) as store:
+            engine = VerdictEngine(
+                store,
+                test_cmd=test_cmd,
+                skip_baseline=skip_baseline,
+                skip_mutations=skip_mutations,
+            )
 
-        with console.status("Running assessment..."):
-            report = engine.assess(repo_path, ref_before, ref_after)
+            with console.status("Running assessment..."):
+                report = engine.assess(repo_path, ref_before, ref_after)
 
-        if output_json:
-            console.print_json(report.to_json())
-            return
+            if output_json:
+                console.print_json(report.to_json())
+                return
 
-        _display_report(report)
-    finally:
-        store.close()
+            _display_report(report)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        console.print(f"[red]Assessment failed: {exc}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -72,9 +73,8 @@ def history(
 ) -> None:
     """Show past assessment history."""
     repo_path = repo_path.resolve()
-    store = _get_store(repo_path)
 
-    try:
+    with _get_store(repo_path) as store:
         assessments = store.get_assessments(limit=limit, offset=offset)
         if not assessments:
             console.print("[dim]No assessments found.[/dim]")
@@ -92,18 +92,18 @@ def history(
             file_count = len(a.files_changed) if a.files_changed else 0
             grade = a.grade or "?"
             grade_style = _grade_color(grade)
+            mutation_display = f"{a.mutation_score}%" if a.mutation_score is not None else "?%"
+            static_display = str(a.static_issues) if a.static_issues is not None else "?"
             table.add_row(
                 a.id[:8],
                 f"[{grade_style}]{grade}[/{grade_style}]",
-                f"{a.mutation_score or '?'}%",
-                str(a.static_issues or "?"),
+                mutation_display,
+                static_display,
                 str(file_count),
                 a.created_at or "?",
             )
 
         console.print(table)
-    finally:
-        store.close()
 
 
 @app.command()
@@ -122,8 +122,7 @@ def feedback(
         console.print(f"[red]Invalid outcome '{outcome}'. Must be: accepted, rejected, or modified[/red]")
         raise typer.Exit(1)
 
-    store = _get_store(repo_path)
-    try:
+    with _get_store(repo_path) as store:
         assessment = store.get_assessment(assessment_id)
         if not assessment:
             console.print(f"[red]Assessment '{assessment_id}' not found[/red]")
@@ -136,11 +135,9 @@ def feedback(
         )
         store.save_feedback(fb)
         console.print(f"[green]Feedback recorded: {outcome} for {assessment_id[:8]}[/green]")
-    finally:
-        store.close()
 
 
-def _display_report(report: "AssessmentReport") -> None:
+def _display_report(report: AssessmentReport) -> None:
     """Display a rich-formatted assessment report."""
     grade_style = _grade_color(report.overall_grade.value)
 
