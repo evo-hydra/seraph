@@ -24,6 +24,9 @@ def _new_id() -> str:
     return uuid.uuid4().hex
 
 
+# ── Core Result Types ────────────────────────────────────────────
+
+
 @dataclass
 class MutationResult:
     """Result of a single mutation test."""
@@ -64,14 +67,52 @@ class BaselineResult:
     created_at: str = field(default_factory=_utcnow)
 
 
+# ── Typed Sentinel Signal Models ─────────────────────────────────
+
+
+@dataclass
+class PitfallMatch:
+    """A Sentinel pitfall matched against a changed file."""
+
+    pitfall_id: str = ""
+    description: str = ""
+    severity: str = "medium"
+    how_to_prevent: str = ""
+    matched_file: str = ""
+    match_type: str = "code_pattern"  # "file_path" or "code_pattern"
+
+
+@dataclass
+class HotFileInfo:
+    """Hot file data from Sentinel for a changed file."""
+
+    file_path: str = ""
+    churn_score: float = 0.0
+    change_count: int = 0
+    bug_fix_count: int = 0
+    revert_count: int = 0
+
+
+@dataclass
+class MissingCoChange:
+    """A co-change partner that wasn't included in the diff."""
+
+    source_file: str = ""
+    partner_file: str = ""
+    change_count: int = 0
+
+
 @dataclass
 class SentinelSignals:
     """Risk signals from Sentinel integration."""
 
     available: bool = False
-    pitfall_matches: list[dict] = field(default_factory=list)
-    hot_files: list[dict] = field(default_factory=list)
-    missing_co_changes: list[dict] = field(default_factory=list)
+    pitfall_matches: list[PitfallMatch] = field(default_factory=list)
+    hot_files: list[HotFileInfo] = field(default_factory=list)
+    missing_co_changes: list[MissingCoChange] = field(default_factory=list)
+
+
+# ── Scoring ──────────────────────────────────────────────────────
 
 
 @dataclass
@@ -84,6 +125,10 @@ class DimensionScore:
     weighted_score: float = 0.0
     grade: Grade = Grade.F
     details: str = ""
+    evaluated: bool = True
+
+
+# ── Report ───────────────────────────────────────────────────────
 
 
 @dataclass
@@ -127,6 +172,7 @@ class AssessmentReport:
                     "weighted_score": round(d.weighted_score, 1),
                     "grade": d.grade.value,
                     "details": d.details,
+                    "evaluated": d.evaluated,
                 }
                 for d in self.dimensions
             ],
@@ -140,6 +186,65 @@ class AssessmentReport:
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), indent=2)
+
+
+# ── Stored Data Models (returned by VerdictStore) ────────────────
+
+
+@dataclass
+class StoredAssessment:
+    """An assessment as persisted in SQLite."""
+
+    id: str = ""
+    repo_path: str = ""
+    ref_before: str | None = None
+    ref_after: str | None = None
+    files_changed: list[str] = field(default_factory=list)
+    mutation_score: float | None = None
+    static_issues: int | None = None
+    sentinel_warnings: int | None = None
+    baseline_flaky: int = 0
+    grade: str = ""
+    report_json: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class StoredMutation:
+    """A mutation cache entry as persisted in SQLite."""
+
+    id: str = ""
+    assessment_id: str = ""
+    file_path: str = ""
+    mutant_id: str = ""
+    operator: str = ""
+    line_number: int | None = None
+    status: str = ""
+    created_at: str = ""
+
+
+@dataclass
+class StoredBaseline:
+    """A baseline entry as persisted in SQLite."""
+
+    id: str = ""
+    repo_path: str = ""
+    test_cmd: str = ""
+    run_count: int = 3
+    flaky_tests: list[str] = field(default_factory=list)
+    pass_rate: float | None = None
+    created_at: str = ""
+
+
+@dataclass
+class StoredFeedback:
+    """A feedback entry as persisted in SQLite."""
+
+    id: str = ""
+    assessment_id: str = ""
+    outcome: str = ""
+    context: str = ""
+    created_at: str = ""
 
 
 @dataclass

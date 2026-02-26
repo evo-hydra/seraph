@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -90,16 +89,16 @@ def history(
         table.add_column("Created")
 
         for a in assessments:
-            files = json.loads(a.get("files_changed", "[]"))
-            grade = a.get("grade", "?")
+            file_count = len(a.files_changed) if a.files_changed else 0
+            grade = a.grade or "?"
             grade_style = _grade_color(grade)
             table.add_row(
-                a["id"][:8],
+                a.id[:8],
                 f"[{grade_style}]{grade}[/{grade_style}]",
-                f"{a.get('mutation_score', '?')}%",
-                str(a.get("static_issues", "?")),
-                str(len(files) if isinstance(files, list) else "?"),
-                a.get("created_at", "?"),
+                f"{a.mutation_score or '?'}%",
+                str(a.static_issues or "?"),
+                str(file_count),
+                a.created_at or "?",
             )
 
         console.print(table)

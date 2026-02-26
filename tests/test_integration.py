@@ -98,7 +98,7 @@ class TestEndToEnd:
         with VerdictStore(db_path) as store:
             saved = store.get_assessment(report.id)
             assert saved is not None
-            assert saved["grade"] == report.overall_grade.value
+            assert saved.grade == report.overall_grade.value
 
     def test_assess_produces_valid_json(self, tmp_path: Path):
         """Report serializes to valid JSON."""
@@ -146,7 +146,7 @@ class TestEndToEnd:
 
             feedbacks = store.get_feedback(report.id)
             assert len(feedbacks) == 1
-            assert feedbacks[0]["outcome"] == "accepted"
+            assert feedbacks[0].outcome == "accepted"
 
     def test_history_ordering(self, tmp_path: Path):
         """Multiple assessments are stored and retrievable."""
@@ -161,7 +161,7 @@ class TestEndToEnd:
 
             history = store.get_assessments(limit=10)
             assert len(history) == 2
-            ids = {h["id"] for h in history}
+            ids = {h.id for h in history}
             assert r1.id in ids
             assert r2.id in ids
 
@@ -281,17 +281,18 @@ class TestSentinelBridgeIntegration:
                 "src/sentinel/core/knowledge.py",
                 "src/sentinel/core/verifier.py",
             ])
-            assert signals["available"] is True
+            assert signals.available is True
             # These are hot files in sentinel, should have data
-            assert isinstance(signals["hot_files"], list)
-            assert isinstance(signals["pitfall_matches"], list)
-            assert isinstance(signals["missing_co_changes"], list)
+            assert isinstance(signals.hot_files, list)
+            assert isinstance(signals.pitfall_matches, list)
+            assert isinstance(signals.missing_co_changes, list)
 
-            # Scores should be valid
-            risk_score = bridge.compute_risk_score(signals)
+            # Scores should be valid (scoring now lives in reporter)
+            from verdict.core.reporter import compute_risk_score, compute_co_change_score
+            risk_score = compute_risk_score(signals)
             assert 0 <= risk_score <= 100
 
-            co_score = bridge.compute_co_change_score(
+            co_score = compute_co_change_score(
                 signals,
                 ["src/sentinel/core/knowledge.py", "src/sentinel/core/verifier.py"],
             )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 # Approximate 4K tokens ≈ 16K chars
@@ -50,8 +49,11 @@ def format_assessment(report_dict: dict) -> str:
     return _truncate("\n".join(lines))
 
 
-def format_history(assessments: list[dict]) -> str:
-    """Format assessment history for LLM consumption."""
+def format_history(assessments: list) -> str:
+    """Format assessment history for LLM consumption.
+
+    Accepts list of StoredAssessment dataclasses.
+    """
     if not assessments:
         return "No assessments found."
 
@@ -60,15 +62,14 @@ def format_history(assessments: list[dict]) -> str:
     lines.append("")
 
     for a in assessments:
-        files = json.loads(a.get("files_changed", "[]"))
-        file_count = len(files) if isinstance(files, list) else 0
+        file_count = len(a.files_changed) if a.files_changed else 0
         lines.append(
-            f"- **{a.get('grade', '?')}** | "
-            f"mutation={a.get('mutation_score', '?')}% | "
-            f"static={a.get('static_issues', '?')} issues | "
+            f"- **{a.grade or '?'}** | "
+            f"mutation={a.mutation_score or '?'}% | "
+            f"static={a.static_issues or '?'} issues | "
             f"{file_count} files | "
-            f"{a.get('created_at', '?')} | "
-            f"id={a.get('id', '?')[:8]}"
+            f"{a.created_at or '?'} | "
+            f"id={a.id[:8] if a.id else '?'}"
         )
 
     return _truncate("\n".join(lines))

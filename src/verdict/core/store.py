@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from verdict.models.assessment import (
     AssessmentReport,
     BaselineResult,
     Feedback,
     MutationResult,
+    StoredAssessment,
+    StoredBaseline,
+    StoredFeedback,
+    StoredMutation,
 )
 from verdict.models.enums import FeedbackOutcome, Grade, MutantStatus
 
-SCHEMA_VERSION = "1"
+logger = logging.getLogger(__name__)
+
+SCHEMA_VERSION = 1
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS verdict_meta (
@@ -68,6 +76,17 @@ CREATE TABLE IF NOT EXISTS feedback (
 """
 
 
+# ── Migrations ───────────────────────────────────────────────────
+
+# Add new migrations here as functions, then register in _MIGRATIONS.
+# Pattern: def _migrate_vN_to_vN1(conn: sqlite3.Connection) -> None
+
+_MIGRATIONS: dict[int, Any] = {
+    # Example for future use:
+    # 1: _migrate_v1_to_v2,
+}
+
+
 class VerdictStore:
     """SQLite-backed storage for Verdict data."""
 
@@ -82,6 +101,7 @@ class VerdictStore:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
+        self._run_migrations()
 
     def close(self) -> None:
         if self._conn:
@@ -110,9 +130,37 @@ class VerdictStore:
         if row is None:
             self.conn.execute(
                 "INSERT INTO verdict_meta (key, value) VALUES ('schema_version', ?)",
-                (SCHEMA_VERSION,),
+                (str(SCHEMA_VERSION),),
             )
             self.conn.commit()
+
+    def _detect_schema_version(self) -> int:
+        """Detect current schema version."""
+        cur = self.conn.execute(
+            "SELECT value FROM verdict_meta WHERE key = 'schema_version'"
+        )
+        row = cur.fetchone()
+        if row:
+            return int(row["value"])
+        return 1
+
+    def _run_migrations(self) -> None:
+        """Run pending schema migrations."""
+        current = self._detect_schema_version()
+        if current >= SCHEMA_VERSION:
+            return
+
+        for version in range(current, SCHEMA_VERSION):
+            migration = _MIGRATIONS.get(version)
+            if migration:
+                logger.info("Running migration v%d → v%d", version, version + 1)
+                migration(self.conn)
+
+        self.conn.execute(
+            "INSERT OR REPLACE INTO verdict_meta (key, value) VALUES ('schema_version', ?)",
+            (str(SCHEMA_VERSION),),
+        )
+        self.conn.commit()
 
     # ── Assessments ──────────────────────────────────────────────
 
@@ -144,18 +192,18 @@ class VerdictStore:
             self._save_baseline(report.baseline)
         self.conn.commit()
 
-    def get_assessment(self, assessment_id: str) -> dict | None:
+    def get_assessment(self, assessment_id: str) -> StoredAssessment | None:
         cur = self.conn.execute(
             "SELECT * FROM assessments WHERE id = ?", (assessment_id,)
         )
         row = cur.fetchone()
         if row is None:
             return None
-        return dict(row)
+        return self._row_to_assessment(row)
 
     def get_assessments(
         self, limit: int = 20, offset: int = 0, repo_path: str | None = None
-    ) -> list[dict]:
+    ) -> list[StoredAssessment]:
         if repo_path:
             cur = self.conn.execute(
                 """SELECT * FROM assessments WHERE repo_path = ?
@@ -167,7 +215,23 @@ class VerdictStore:
                 "SELECT * FROM assessments ORDER BY created_at DESC LIMIT ? OFFSET ?",
                 (limit, offset),
             )
-        return [dict(r) for r in cur.fetchall()]
+        return [self._row_to_assessment(r) for r in cur.fetchall()]
+
+    def _row_to_assessment(self, row: sqlite3.Row) -> StoredAssessment:
+        return StoredAssessment(
+            id=row["id"],
+            repo_path=row["repo_path"],
+            ref_before=row["ref_before"],
+            ref_after=row["ref_after"],
+            files_changed=json.loads(row["files_changed"]),
+            mutation_score=row["mutation_score"],
+            static_issues=row["static_issues"],
+            sentinel_warnings=row["sentinel_warnings"],
+            baseline_flaky=row["baseline_flaky"] or 0,
+            grade=row["grade"],
+            report_json=row["report_json"],
+            created_at=row["created_at"],
+        )
 
     # ── Mutations ────────────────────────────────────────────────
 
@@ -189,12 +253,24 @@ class VerdictStore:
             ),
         )
 
-    def get_mutations(self, assessment_id: str) -> list[dict]:
+    def get_mutations(self, assessment_id: str) -> list[StoredMutation]:
         cur = self.conn.execute(
             "SELECT * FROM mutation_cache WHERE assessment_id = ? ORDER BY file_path",
             (assessment_id,),
         )
-        return [dict(r) for r in cur.fetchall()]
+        return [
+            StoredMutation(
+                id=r["id"],
+                assessment_id=r["assessment_id"],
+                file_path=r["file_path"],
+                mutant_id=r["mutant_id"],
+                operator=r["operator"],
+                line_number=r["line_number"],
+                status=r["status"],
+                created_at=r["created_at"],
+            )
+            for r in cur.fetchall()
+        ]
 
     # ── Baselines ────────────────────────────────────────────────
 
@@ -214,14 +290,24 @@ class VerdictStore:
             ),
         )
 
-    def get_latest_baseline(self, repo_path: str) -> dict | None:
+    def get_latest_baseline(self, repo_path: str) -> StoredBaseline | None:
         cur = self.conn.execute(
             """SELECT * FROM baselines WHERE repo_path = ?
                ORDER BY created_at DESC LIMIT 1""",
             (repo_path,),
         )
         row = cur.fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        return StoredBaseline(
+            id=row["id"],
+            repo_path=row["repo_path"],
+            test_cmd=row["test_cmd"],
+            run_count=row["run_count"],
+            flaky_tests=json.loads(row["flaky_tests"]) if row["flaky_tests"] else [],
+            pass_rate=row["pass_rate"],
+            created_at=row["created_at"],
+        )
 
     # ── Feedback ─────────────────────────────────────────────────
 
@@ -233,12 +319,21 @@ class VerdictStore:
         )
         self.conn.commit()
 
-    def get_feedback(self, assessment_id: str) -> list[dict]:
+    def get_feedback(self, assessment_id: str) -> list[StoredFeedback]:
         cur = self.conn.execute(
             "SELECT * FROM feedback WHERE assessment_id = ? ORDER BY created_at DESC",
             (assessment_id,),
         )
-        return [dict(r) for r in cur.fetchall()]
+        return [
+            StoredFeedback(
+                id=r["id"],
+                assessment_id=r["assessment_id"],
+                outcome=r["outcome"],
+                context=r["context"] or "",
+                created_at=r["created_at"],
+            )
+            for r in cur.fetchall()
+        ]
 
     # ── Stats ────────────────────────────────────────────────────
 

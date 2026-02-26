@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import json
+import logging
+import sqlite3
 import subprocess
 from pathlib import Path
 
 from verdict.models.assessment import MutationResult
 from verdict.models.enums import MutantStatus
+
+logger = logging.getLogger(__name__)
 
 
 def run_mutations(
@@ -82,26 +85,28 @@ def _parse_mutmut_results(repo_path: Path, file_path: str) -> list[MutationResul
 def _parse_from_cache(cache_path: Path, file_path: str) -> list[MutationResult]:
     """Parse results from mutmut's SQLite cache."""
     results: list[MutationResult] = []
+    db_path = str(cache_path / "db.sqlite3") if cache_path.is_dir() else str(cache_path)
     try:
-        import sqlite3
-
-        conn = sqlite3.connect(str(cache_path / "db.sqlite3") if cache_path.is_dir() else str(cache_path))
+        conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         cur = conn.execute("SELECT * FROM mutant WHERE source_file = ?", (file_path,))
         for row in cur.fetchall():
-            status = _map_mutmut_status(row["status"] if "status" in row.keys() else "unknown")
+            col_names = row.keys()
+            status = _map_mutmut_status(row["status"] if "status" in col_names else "unknown")
             results.append(
                 MutationResult(
                     file_path=file_path,
                     mutant_id=str(row["id"]),
-                    operator=row.get("operator", "unknown") if hasattr(row, "get") else "unknown",
-                    line_number=row["line_number"] if "line_number" in row.keys() else None,
+                    operator=row["operator"] if "operator" in col_names else "unknown",
+                    line_number=row["line_number"] if "line_number" in col_names else None,
                     status=status,
                 )
             )
         conn.close()
-    except Exception:
-        pass
+    except sqlite3.Error as exc:
+        logger.debug("Failed to parse mutmut cache at %s: %s", db_path, exc)
+    except (KeyError, ValueError) as exc:
+        logger.debug("Unexpected schema in mutmut cache: %s", exc)
     return results
 
 
@@ -116,7 +121,6 @@ def _parse_from_command(repo_path: Path, file_path: str) -> list[MutationResult]
             text=True,
             timeout=30,
         )
-        # Parse output — format varies by version, handle common patterns
         current_status = MutantStatus.SURVIVED
         for line in proc.stdout.splitlines():
             line = line.strip()
@@ -127,7 +131,6 @@ def _parse_from_command(repo_path: Path, file_path: str) -> list[MutationResult]
             elif line.startswith("Timeout"):
                 current_status = MutantStatus.TIMEOUT
             elif line and line[0].isdigit():
-                # Mutant IDs are numeric
                 for mutant_id in line.split(","):
                     mutant_id = mutant_id.strip()
                     if mutant_id.isdigit():
@@ -139,8 +142,10 @@ def _parse_from_command(repo_path: Path, file_path: str) -> list[MutationResult]
                                 status=current_status,
                             )
                         )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+    except subprocess.TimeoutExpired:
+        logger.debug("mutmut results timed out for %s", file_path)
+    except FileNotFoundError:
+        logger.debug("mutmut not found on PATH")
     return results
 
 
@@ -156,13 +161,3 @@ def _map_mutmut_status(status: str) -> MutantStatus:
     if "skipped" in status_lower:
         return MutantStatus.SKIPPED
     return MutantStatus.ERROR
-
-
-def compute_mutation_score(results: list[MutationResult]) -> float:
-    """Compute mutation score as percentage of killed mutants."""
-    if not results:
-        return 100.0  # No mutants = perfect score (nothing to test)
-
-    total = len(results)
-    killed = sum(1 for r in results if r.status == MutantStatus.KILLED)
-    return round((killed / total) * 100, 1)

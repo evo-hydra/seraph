@@ -14,6 +14,7 @@ from verdict.mcp.formatters import (
     format_history,
     format_mutations,
 )
+from verdict.models.assessment import StoredAssessment
 
 
 class TestFormatAssessment:
@@ -46,14 +47,14 @@ class TestFormatHistory:
 
     def test_with_entries(self):
         entries = [
-            {
-                "id": "abc12345",
-                "grade": "A",
-                "mutation_score": 95.0,
-                "static_issues": 0,
-                "files_changed": '["foo.py"]',
-                "created_at": "2026-01-01",
-            }
+            StoredAssessment(
+                id="abc12345",
+                grade="A",
+                mutation_score=95.0,
+                static_issues=0,
+                files_changed=["foo.py"],
+                created_at="2026-01-01",
+            )
         ]
         output = format_history(entries)
         assert "abc12345" in output

@@ -145,27 +145,3 @@ def _ruff_severity(code: str) -> Severity:
     if code.startswith(("E", "W")):
         return Severity.LOW
     return Severity.MEDIUM
-
-
-def compute_static_score(findings: list[StaticFinding], file_count: int) -> float:
-    """Compute static cleanliness score (0-100).
-
-    Score decreases based on issues per file, weighted by severity.
-    """
-    if file_count == 0:
-        return 100.0
-
-    severity_weights = {
-        Severity.CRITICAL: 10,
-        Severity.HIGH: 5,
-        Severity.MEDIUM: 2,
-        Severity.LOW: 1,
-        Severity.INFO: 0,
-    }
-
-    weighted_issues = sum(severity_weights.get(f.severity, 1) for f in findings)
-    issues_per_file = weighted_issues / file_count
-
-    # 0 issues = 100, 10+ weighted issues/file = 0
-    score = max(0.0, 100.0 - (issues_per_file * 10))
-    return round(score, 1)

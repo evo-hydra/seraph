@@ -4,14 +4,93 @@ from __future__ import annotations
 
 import pytest
 
-from verdict.core.reporter import build_report, DIMENSION_WEIGHTS
+from verdict.core.reporter import (
+    build_report,
+    compute_baseline_score,
+    compute_co_change_score,
+    compute_mutation_score,
+    compute_risk_score,
+    compute_static_score,
+    DIMENSION_WEIGHTS,
+)
 from verdict.models.assessment import (
     BaselineResult,
+    HotFileInfo,
+    MissingCoChange,
     MutationResult,
+    PitfallMatch,
     SentinelSignals,
     StaticFinding,
 )
 from verdict.models.enums import Grade, MutantStatus, Severity
+
+
+class TestComputeBaselineScore:
+    def test_no_flaky(self):
+        baseline = BaselineResult(flaky_tests=[], pass_rate=1.0)
+        assert compute_baseline_score(baseline) == 100.0
+
+    def test_with_flaky(self):
+        baseline = BaselineResult(flaky_tests=["t1", "t2"], pass_rate=0.8)
+        assert compute_baseline_score(baseline) == 80.0
+
+
+class TestComputeMutationScore:
+    def test_no_mutants(self):
+        assert compute_mutation_score([]) == 100.0
+
+    def test_half_killed(self):
+        results = [
+            MutationResult(status=MutantStatus.KILLED),
+            MutationResult(status=MutantStatus.SURVIVED),
+        ]
+        assert compute_mutation_score(results) == 50.0
+
+
+class TestComputeStaticScore:
+    def test_no_findings(self):
+        assert compute_static_score([], 5) == 100.0
+
+    def test_zero_files(self):
+        assert compute_static_score([], 0) == 100.0
+
+    def test_with_findings(self):
+        findings = [
+            StaticFinding(severity=Severity.HIGH),
+            StaticFinding(severity=Severity.LOW),
+        ]
+        # weighted: 5 + 1 = 6, per file = 6/2 = 3, score = 100 - 30 = 70
+        assert compute_static_score(findings, 2) == 70.0
+
+
+class TestComputeRiskScore:
+    def test_no_data(self):
+        signals = SentinelSignals(available=False)
+        assert compute_risk_score(signals) == 100.0
+
+    def test_with_signals(self):
+        signals = SentinelSignals(
+            available=True,
+            pitfall_matches=[PitfallMatch(), PitfallMatch()],
+            hot_files=[HotFileInfo(churn_score=50)],
+            missing_co_changes=[MissingCoChange()],
+        )
+        # 2 pitfalls * 5 = 10, 1 hot file (50/5=10 capped at 10) = 10, 1 missing * 3 = 3
+        assert compute_risk_score(signals) == 77.0
+
+
+class TestComputeCoChangeScore:
+    def test_no_data(self):
+        signals = SentinelSignals(available=False)
+        assert compute_co_change_score(signals, ["a.py"]) == 100.0
+
+    def test_with_missing(self):
+        signals = SentinelSignals(
+            available=True,
+            missing_co_changes=[MissingCoChange(), MissingCoChange()],
+        )
+        # 2 changed + 2 missing = 4 total partners, coverage = 2/4 = 50%
+        assert compute_co_change_score(signals, ["a.py", "d.py"]) == 50.0
 
 
 class TestBuildReport:
@@ -118,3 +197,26 @@ class TestBuildReport:
             sentinel_signals=SentinelSignals(),
         )
         assert report.overall_grade == Grade.F
+
+    def test_evaluated_dimensions_subset(self):
+        report = build_report(
+            repo_path="/tmp/test",
+            ref_before=None,
+            ref_after=None,
+            files_changed=["foo.py"],
+            mutation_score=50.0,
+            static_score=100.0,
+            baseline_score=100.0,
+            sentinel_risk_score=100.0,
+            co_change_score=100.0,
+            mutations=[],
+            static_findings=[],
+            baseline=None,
+            sentinel_signals=SentinelSignals(),
+            evaluated_dimensions={"mutation"},
+        )
+        # Only mutation is evaluated, so overall = mutation score
+        assert report.overall_score == 50.0
+        evaluated = [d for d in report.dimensions if d.evaluated]
+        assert len(evaluated) == 1
+        assert evaluated[0].name == "Mutation Score"

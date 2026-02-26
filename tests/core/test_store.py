@@ -51,10 +51,10 @@ class TestVerdictStore:
 
         fetched = store.get_assessment(report.id)
         assert fetched is not None
-        assert fetched["repo_path"] == "/tmp/test"
-        assert fetched["grade"] == "B"
-        assert fetched["mutation_score"] == 90.0
-        assert json.loads(fetched["files_changed"]) == ["foo.py", "bar.py"]
+        assert fetched.repo_path == "/tmp/test"
+        assert fetched.grade == "B"
+        assert fetched.mutation_score == 90.0
+        assert fetched.files_changed == ["foo.py", "bar.py"]
 
     def test_get_assessments_pagination(self, store: VerdictStore):
         for i in range(5):
@@ -89,7 +89,7 @@ class TestVerdictStore:
 
         saved_mutations = store.get_mutations(report.id)
         assert len(saved_mutations) == 2
-        statuses = {m["status"] for m in saved_mutations}
+        statuses = {m.status for m in saved_mutations}
         assert statuses == {"killed", "survived"}
 
     def test_save_assessment_with_baseline(self, store: VerdictStore):
@@ -108,8 +108,8 @@ class TestVerdictStore:
 
         saved_baseline = store.get_latest_baseline("/tmp/test")
         assert saved_baseline is not None
-        assert saved_baseline["pass_rate"] == 0.95
-        assert json.loads(saved_baseline["flaky_tests"]) == ["test_a", "test_b"]
+        assert saved_baseline.pass_rate == 0.95
+        assert saved_baseline.flaky_tests == ["test_a", "test_b"]
 
     def test_save_and_get_feedback(self, store: VerdictStore):
         report = AssessmentReport(
@@ -128,8 +128,8 @@ class TestVerdictStore:
 
         feedbacks = store.get_feedback(report.id)
         assert len(feedbacks) == 1
-        assert feedbacks[0]["outcome"] == "accepted"
-        assert feedbacks[0]["context"] == "Good assessment"
+        assert feedbacks[0].outcome == "accepted"
+        assert feedbacks[0].context == "Good assessment"
 
     def test_stats(self, store: VerdictStore):
         stats = store.stats()

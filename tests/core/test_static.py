@@ -11,9 +11,9 @@ import pytest
 from verdict.core.static import (
     _parse_mypy_line,
     _ruff_severity,
-    compute_static_score,
     run_static_analysis,
 )
+from verdict.core.reporter import compute_static_score
 from verdict.models.assessment import StaticFinding
 from verdict.models.enums import AnalyzerType, Severity
 

@@ -6,14 +6,20 @@ from pathlib import Path
 
 from verdict.core.baseline import run_baseline
 from verdict.core.bridge import SentinelBridge
-from verdict.core.differ import DiffResult, parse_diff
-from verdict.core.mutator import compute_mutation_score, run_mutations
-from verdict.core.reporter import build_report
-from verdict.core.static import compute_static_score, run_static_analysis
+from verdict.core.differ import parse_diff
+from verdict.core.mutator import run_mutations
+from verdict.core.reporter import (
+    build_report,
+    compute_baseline_score,
+    compute_co_change_score,
+    compute_mutation_score,
+    compute_risk_score,
+    compute_static_score,
+)
+from verdict.core.static import run_static_analysis
 from verdict.core.store import VerdictStore
 from verdict.models.assessment import (
     AssessmentReport,
-    BaselineResult,
     SentinelSignals,
 )
 
@@ -68,11 +74,11 @@ class VerdictEngine:
             return self._empty_report(str(repo), ref_before, ref_after)
 
         # Step 2: Baseline
-        baseline: BaselineResult | None = None
+        baseline = None
         baseline_score = 100.0
         if not self._skip_baseline and py_files:
             baseline = run_baseline(repo, self._test_cmd, self._baseline_runs)
-            baseline_score = self._compute_baseline_score(baseline)
+            baseline_score = compute_baseline_score(baseline)
 
         # Step 3: Mutate
         mutations = []
@@ -86,20 +92,11 @@ class VerdictEngine:
         static_score = compute_static_score(static_findings, max(len(py_files), 1))
 
         # Step 5: Sentinel
-        bridge = SentinelBridge(repo)
-        try:
-            signals_dict = bridge.get_risk_signals(all_files)
-            sentinel_risk_score = bridge.compute_risk_score(signals_dict)
-            co_change_score = bridge.compute_co_change_score(signals_dict, all_files)
+        with SentinelBridge(repo) as bridge:
+            sentinel_signals = bridge.get_risk_signals(all_files)
 
-            sentinel_signals = SentinelSignals(
-                available=signals_dict.get("available", False),
-                pitfall_matches=signals_dict.get("pitfall_matches", []),
-                hot_files=signals_dict.get("hot_files", []),
-                missing_co_changes=signals_dict.get("missing_co_changes", []),
-            )
-        finally:
-            bridge.close()
+        sentinel_risk_score = compute_risk_score(sentinel_signals)
+        co_change_score = compute_co_change_score(sentinel_signals, all_files)
 
         # Step 6: Report
         report = build_report(
@@ -129,7 +126,11 @@ class VerdictEngine:
         ref_before: str | None = None,
         ref_after: str | None = None,
     ) -> AssessmentReport:
-        """Run only mutation testing (subset of full assess)."""
+        """Run only mutation testing (subset of full assess).
+
+        Only the mutation dimension is evaluated. Other dimensions are
+        marked as not evaluated and excluded from the overall score.
+        """
         repo = Path(repo_path).resolve()
         diff = parse_diff(repo, ref_before, ref_after)
         py_files = diff.python_files
@@ -151,18 +152,11 @@ class VerdictEngine:
             static_findings=[],
             baseline=None,
             sentinel_signals=SentinelSignals(),
+            evaluated_dimensions={"mutation"},
         )
 
         self._store.save_assessment(report)
         return report
-
-    def _compute_baseline_score(self, baseline: BaselineResult) -> float:
-        """Convert baseline result to a 0-100 score."""
-        flaky_count = len(baseline.flaky_tests)
-        if flaky_count == 0:
-            return 100.0
-        # Each flaky test deducts 10 points, floor at 0
-        return max(0.0, 100.0 - flaky_count * 10)
 
     def _empty_report(
         self, repo_path: str, ref_before: str | None, ref_after: str | None

@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 
 from verdict.core.mutator import (
-    compute_mutation_score,
     run_mutations,
     _map_mutmut_status,
 )
+from verdict.core.reporter import compute_mutation_score
 from verdict.models.assessment import MutationResult
 from verdict.models.enums import MutantStatus
 
