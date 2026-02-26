@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
+from unittest.mock import patch
 
 import pytest
 
-from verdict.core.store import VerdictStore
+from verdict.core.store import VerdictStore, SCHEMA_VERSION, _MIGRATIONS
 from verdict.models.assessment import (
     AssessmentReport,
     BaselineResult,
@@ -73,6 +73,24 @@ class TestVerdictStore:
 
         page2 = store.get_assessments(limit=2, offset=2)
         assert len(page2) == 2
+
+    def test_get_assessments_repo_path_filter(self, store: VerdictStore):
+        for repo in ["/tmp/a", "/tmp/a", "/tmp/b"]:
+            report = AssessmentReport(
+                repo_path=repo,
+                files_changed=["foo.py"],
+                overall_grade=Grade.A,
+            )
+            store.save_assessment(report)
+
+        a_results = store.get_assessments(repo_path="/tmp/a")
+        assert len(a_results) == 2
+
+        b_results = store.get_assessments(repo_path="/tmp/b")
+        assert len(b_results) == 1
+
+        none_results = store.get_assessments(repo_path="/tmp/nope")
+        assert len(none_results) == 0
 
     def test_save_assessment_with_mutations(self, store: VerdictStore):
         mutations = [
@@ -145,3 +163,69 @@ class TestVerdictStore:
 
     def test_get_nonexistent_assessment(self, store: VerdictStore):
         assert store.get_assessment("nonexistent") is None
+
+
+class TestMigrationSystem:
+    def test_migration_runs_on_version_bump(self, tmp_path):
+        """Simulate a schema version bump and verify migrations run."""
+        db_path = tmp_path / "migrate.db"
+
+        # Create store at version 1
+        with VerdictStore(db_path) as store:
+            store.conn.execute(
+                "INSERT OR REPLACE INTO verdict_meta (key, value) VALUES ('schema_version', '1')"
+            )
+            store.conn.commit()
+
+        # Define a migration that adds a column
+        migration_ran = []
+
+        def _migrate_v1_to_v2(conn):
+            conn.execute("ALTER TABLE assessments ADD COLUMN extra TEXT")
+            migration_ran.append(True)
+
+        # Patch SCHEMA_VERSION to 2 and register migration
+        with patch("verdict.core.store.SCHEMA_VERSION", 2), \
+             patch.dict(_MIGRATIONS, {1: _migrate_v1_to_v2}):
+            with VerdictStore(db_path) as store:
+                pass
+
+        assert len(migration_ran) == 1
+
+        # Verify the column was actually added
+        with VerdictStore(db_path) as store:
+            cur = store.conn.execute("PRAGMA table_info(assessments)")
+            columns = {row["name"] for row in cur.fetchall()}
+            assert "extra" in columns
+
+    def test_no_migration_when_current(self, tmp_path):
+        """No migrations run when schema is already at current version."""
+        db_path = tmp_path / "current.db"
+
+        migration_ran = []
+
+        def _should_not_run(conn):
+            migration_ran.append(True)
+
+        with patch.dict(_MIGRATIONS, {1: _should_not_run}):
+            with VerdictStore(db_path) as store:
+                pass
+
+        assert len(migration_ran) == 0
+
+    def test_version_updated_after_migration(self, tmp_path):
+        """Schema version is updated to SCHEMA_VERSION after migrations."""
+        db_path = tmp_path / "version.db"
+
+        # Create at version 1
+        with VerdictStore(db_path) as store:
+            pass
+
+        # Bump to version 2
+        with patch("verdict.core.store.SCHEMA_VERSION", 2), \
+             patch.dict(_MIGRATIONS, {1: lambda conn: None}):
+            with VerdictStore(db_path) as store:
+                cur = store.conn.execute(
+                    "SELECT value FROM verdict_meta WHERE key = 'schema_version'"
+                )
+                assert cur.fetchone()["value"] == "2"

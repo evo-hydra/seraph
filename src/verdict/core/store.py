@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from verdict.models.assessment import (
     AssessmentReport,
@@ -81,10 +81,12 @@ CREATE TABLE IF NOT EXISTS feedback (
 # Add new migrations here as functions, then register in _MIGRATIONS.
 # Pattern: def _migrate_vN_to_vN1(conn: sqlite3.Connection) -> None
 
-_MIGRATIONS: dict[int, Any] = {
+_MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     # Example for future use:
     # 1: _migrate_v1_to_v2,
 }
+
+_STATS_TABLES = frozenset({"assessments", "baselines", "mutation_cache", "feedback"})
 
 
 class VerdictStore:
@@ -101,7 +103,6 @@ class VerdictStore:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
-        self._run_migrations()
 
     def close(self) -> None:
         if self._conn:
@@ -133,23 +134,15 @@ class VerdictStore:
                 (str(SCHEMA_VERSION),),
             )
             self.conn.commit()
-
-    def _detect_schema_version(self) -> int:
-        """Detect current schema version."""
-        cur = self.conn.execute(
-            "SELECT value FROM verdict_meta WHERE key = 'schema_version'"
-        )
-        row = cur.fetchone()
-        if row:
-            return int(row["value"])
-        return 1
-
-    def _run_migrations(self) -> None:
-        """Run pending schema migrations."""
-        current = self._detect_schema_version()
-        if current >= SCHEMA_VERSION:
             return
 
+        # Run migrations if needed
+        current = int(row["value"])
+        if current < SCHEMA_VERSION:
+            self._run_migrations(current)
+
+    def _run_migrations(self, current: int) -> None:
+        """Run pending schema migrations from current version."""
         for version in range(current, SCHEMA_VERSION):
             migration = _MIGRATIONS.get(version)
             if migration:
@@ -227,7 +220,7 @@ class VerdictStore:
             mutation_score=row["mutation_score"],
             static_issues=row["static_issues"],
             sentinel_warnings=row["sentinel_warnings"],
-            baseline_flaky=row["baseline_flaky"] or 0,
+            baseline_flaky=row["baseline_flaky"],
             grade=row["grade"],
             report_json=row["report_json"],
             created_at=row["created_at"],
@@ -338,9 +331,8 @@ class VerdictStore:
     # ── Stats ────────────────────────────────────────────────────
 
     def stats(self) -> dict[str, int]:
-        tables = ["assessments", "baselines", "mutation_cache", "feedback"]
         result = {}
-        for table in tables:
+        for table in sorted(_STATS_TABLES):
             cur = self.conn.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
             result[table] = cur.fetchone()[0]
         return result
