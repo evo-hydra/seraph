@@ -88,21 +88,23 @@ def _parse_from_cache(cache_path: Path, file_path: str) -> list[MutationResult]:
     db_path = str(cache_path / "db.sqlite3") if cache_path.is_dir() else str(cache_path)
     try:
         conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute("SELECT * FROM mutant WHERE source_file = ?", (file_path,))
-        for row in cur.fetchall():
-            col_names = row.keys()
-            status = _map_mutmut_status(row["status"] if "status" in col_names else "unknown")
-            results.append(
-                MutationResult(
-                    file_path=file_path,
-                    mutant_id=str(row["id"]),
-                    operator=row["operator"] if "operator" in col_names else "unknown",
-                    line_number=row["line_number"] if "line_number" in col_names else None,
-                    status=status,
+        try:
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute("SELECT * FROM mutant WHERE source_file = ?", (file_path,))
+            for row in cur.fetchall():
+                col_names = row.keys()
+                status = _map_mutmut_status(row["status"] if "status" in col_names else "unknown")
+                results.append(
+                    MutationResult(
+                        file_path=file_path,
+                        mutant_id=str(row["id"]),
+                        operator=row["operator"] if "operator" in col_names else "unknown",
+                        line_number=row["line_number"] if "line_number" in col_names else None,
+                        status=status,
+                    )
                 )
-            )
-        conn.close()
+        finally:
+            conn.close()
     except sqlite3.Error as exc:
         logger.debug("Failed to parse mutmut cache at %s: %s", db_path, exc)
     except (KeyError, ValueError) as exc:

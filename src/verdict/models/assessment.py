@@ -253,6 +253,6 @@ class Feedback:
 
     id: str = field(default_factory=_new_id)
     assessment_id: str = ""
-    outcome: FeedbackOutcome = FeedbackOutcome.ACCEPTED
+    outcome: FeedbackOutcome = field(default=FeedbackOutcome.ACCEPTED)
     context: str = ""
     created_at: str = field(default_factory=_utcnow)

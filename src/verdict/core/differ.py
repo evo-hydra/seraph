@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,23 +60,27 @@ def parse_diff(repo_path: Path, ref_before: str | None = None, ref_after: str | 
     else:
         cmd.append("HEAD")
 
-    result = subprocess.run(
-        cmd,
-        cwd=str(repo_path),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    # If HEAD doesn't exist yet (fresh repo), fall back to diff of staged files
-    if result.returncode != 0 and "HEAD" in result.stderr:
+    try:
         result = subprocess.run(
-            ["git", "diff", "--unified=0", "--cached"],
+            cmd,
             cwd=str(repo_path),
             capture_output=True,
             text=True,
             timeout=30,
         )
+
+        # If HEAD doesn't exist yet (fresh repo), fall back to diff of staged files
+        if result.returncode != 0 and "HEAD" in result.stderr:
+            result = subprocess.run(
+                ["git", "diff", "--unified=0", "--cached"],
+                cwd=str(repo_path),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+    except subprocess.TimeoutExpired:
+        logger.debug("git diff timed out for %s", repo_path)
+        return DiffResult(ref_before=ref_before, ref_after=ref_after)
 
     return _parse_diff_output(result.stdout, ref_before, ref_after)
 

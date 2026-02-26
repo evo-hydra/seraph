@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from unittest.mock import patch
 
 import pytest
 
@@ -75,3 +76,25 @@ class TestParseDiffGit:
     def test_parse_diff_no_changes(self, tmp_repo):
         result = parse_diff(tmp_repo)
         assert result.files == []
+
+    def test_parse_diff_cached_fallback(self, tmp_path):
+        """Fresh repo with no commits falls back to --cached diff."""
+        from tests.conftest import _git
+
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@test.com")
+        _git(tmp_path, "config", "user.name", "Test")
+        (tmp_path / "hello.py").write_text("x = 1\n")
+        _git(tmp_path, "add", "hello.py")
+
+        result = parse_diff(tmp_path)
+        paths = result.file_paths
+        assert "hello.py" in paths
+
+    @patch("verdict.core.differ.subprocess.run")
+    def test_parse_diff_timeout_returns_empty(self, mock_run, tmp_path):
+        """TimeoutExpired returns an empty DiffResult."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git diff", timeout=30)
+        result = parse_diff(tmp_path, ref_before="abc123")
+        assert result.files == []
+        assert result.ref_before == "abc123"

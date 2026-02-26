@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from pathlib import Path
 
 from verdict.models.assessment import StaticFinding
 from verdict.models.enums import AnalyzerType, Severity
+
+logger = logging.getLogger(__name__)
 
 
 def run_static_analysis(
@@ -55,8 +58,12 @@ def _run_ruff(repo_path: Path, abs_files: list[str], timeout: int) -> list[Stati
                         analyzer=AnalyzerType.RUFF,
                     )
                 )
-    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
-        pass
+    except subprocess.TimeoutExpired:
+        logger.debug("ruff timed out after %ds", timeout)
+    except FileNotFoundError:
+        logger.debug("ruff not found on PATH")
+    except json.JSONDecodeError as exc:
+        logger.debug("Failed to parse ruff JSON output: %s", exc)
     return findings
 
 
@@ -75,8 +82,10 @@ def _run_mypy(repo_path: Path, abs_files: list[str], timeout: int) -> list[Stati
             finding = _parse_mypy_line(line, repo_path)
             if finding:
                 findings.append(finding)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+    except subprocess.TimeoutExpired:
+        logger.debug("mypy timed out after %ds", timeout)
+    except FileNotFoundError:
+        logger.debug("mypy not found on PATH")
     return findings
 
 
@@ -93,19 +102,15 @@ def _parse_mypy_line(line: str, repo_path: Path) -> StaticFinding | None:
         return None
 
     rest = parts[2].strip() + ":" + parts[3] if len(parts) > 3 else parts[2].strip()
-    # Extract severity
+    # Extract severity and message
+    _MYPY_SEVERITY = {"error": Severity.HIGH, "warning": Severity.MEDIUM, "note": Severity.INFO}
     severity = Severity.MEDIUM
-    if rest.startswith("error"):
-        severity = Severity.HIGH
-        message = rest.split(":", 1)[1].strip() if ":" in rest else rest
-    elif rest.startswith("warning"):
-        severity = Severity.MEDIUM
-        message = rest.split(":", 1)[1].strip() if ":" in rest else rest
-    elif rest.startswith("note"):
-        severity = Severity.INFO
-        message = rest.split(":", 1)[1].strip() if ":" in rest else rest
-    else:
-        message = rest.strip()
+    message = rest.strip()
+    for prefix, sev in _MYPY_SEVERITY.items():
+        if rest.startswith(prefix):
+            severity = sev
+            message = rest.split(":", 1)[1].strip() if ":" in rest else rest
+            break
 
     # Extract code if present: [code]
     code = ""

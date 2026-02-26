@@ -1,5 +1,7 @@
 """Enums used across the Verdict system."""
 
+from __future__ import annotations
+
 from enum import Enum
 
 
@@ -13,7 +15,7 @@ class Grade(str, Enum):
     F = "F"
 
     @classmethod
-    def from_score(cls, score: float) -> "Grade":
+    def from_score(cls, score: float) -> Grade:
         if score >= 90:
             return cls.A
         if score >= 75:

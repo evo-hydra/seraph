@@ -6,8 +6,11 @@ All scoring logic lives in reporter.py.
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from verdict.models.assessment import (
     HotFileInfo,
@@ -40,10 +43,9 @@ class SentinelBridge:
             self._store.open()
             self._available = True
         except ImportError:
-            pass
+            logger.debug("Sentinel not installed; bridge unavailable")
         except (OSError, RuntimeError) as exc:
-            # DB file exists but can't be opened (corrupt, permissions, etc.)
-            pass
+            logger.debug("Failed to open Sentinel DB at %s: %s", sentinel_db, exc)
 
     def __enter__(self) -> SentinelBridge:
         return self
@@ -168,7 +170,7 @@ class SentinelBridge:
         if self._store:
             try:
                 self._store.close()
-            except (OSError, RuntimeError):
-                pass
+            except (OSError, RuntimeError) as exc:
+                logger.debug("Error closing Sentinel store: %s", exc)
             self._store = None
             self._available = False
