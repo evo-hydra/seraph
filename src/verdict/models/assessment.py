@@ -1,0 +1,153 @@
+"""Data models for Verdict assessments."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+
+from verdict.models.enums import (
+    AnalyzerType,
+    FeedbackOutcome,
+    Grade,
+    MutantStatus,
+    Severity,
+)
+
+
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _new_id() -> str:
+    return uuid.uuid4().hex
+
+
+@dataclass
+class MutationResult:
+    """Result of a single mutation test."""
+
+    id: str = field(default_factory=_new_id)
+    assessment_id: str = ""
+    file_path: str = ""
+    mutant_id: str = ""
+    operator: str = ""
+    line_number: int | None = None
+    status: MutantStatus = MutantStatus.SURVIVED
+    created_at: str = field(default_factory=_utcnow)
+
+
+@dataclass
+class StaticFinding:
+    """A single finding from static analysis."""
+
+    file_path: str = ""
+    line_number: int = 0
+    column: int = 0
+    code: str = ""
+    message: str = ""
+    severity: Severity = Severity.MEDIUM
+    analyzer: AnalyzerType = AnalyzerType.RUFF
+
+
+@dataclass
+class BaselineResult:
+    """Result of flakiness baseline testing."""
+
+    id: str = field(default_factory=_new_id)
+    repo_path: str = ""
+    test_cmd: str = "pytest"
+    run_count: int = 3
+    flaky_tests: list[str] = field(default_factory=list)
+    pass_rate: float = 1.0
+    created_at: str = field(default_factory=_utcnow)
+
+
+@dataclass
+class SentinelSignals:
+    """Risk signals from Sentinel integration."""
+
+    available: bool = False
+    pitfall_matches: list[dict] = field(default_factory=list)
+    hot_files: list[dict] = field(default_factory=list)
+    missing_co_changes: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class DimensionScore:
+    """Score for a single assessment dimension."""
+
+    name: str = ""
+    raw_score: float = 0.0
+    weight: float = 0.0
+    weighted_score: float = 0.0
+    grade: Grade = Grade.F
+    details: str = ""
+
+
+@dataclass
+class AssessmentReport:
+    """Complete multi-metric assessment report."""
+
+    id: str = field(default_factory=_new_id)
+    repo_path: str = ""
+    ref_before: str | None = None
+    ref_after: str | None = None
+    files_changed: list[str] = field(default_factory=list)
+    dimensions: list[DimensionScore] = field(default_factory=list)
+    overall_score: float = 0.0
+    overall_grade: Grade = Grade.F
+    mutation_score: float = 0.0
+    static_issues: int = 0
+    sentinel_warnings: int = 0
+    baseline_flaky: int = 0
+    gaps: list[str] = field(default_factory=list)
+    mutations: list[MutationResult] = field(default_factory=list)
+    static_findings: list[StaticFinding] = field(default_factory=list)
+    baseline: BaselineResult | None = None
+    sentinel_signals: SentinelSignals = field(default_factory=SentinelSignals)
+    created_at: str = field(default_factory=_utcnow)
+
+    def to_dict(self) -> dict:
+        """Serialize to a JSON-compatible dict."""
+        return {
+            "id": self.id,
+            "repo_path": self.repo_path,
+            "ref_before": self.ref_before,
+            "ref_after": self.ref_after,
+            "files_changed": self.files_changed,
+            "overall_score": round(self.overall_score, 1),
+            "overall_grade": self.overall_grade.value,
+            "dimensions": [
+                {
+                    "name": d.name,
+                    "raw_score": round(d.raw_score, 1),
+                    "weight": d.weight,
+                    "weighted_score": round(d.weighted_score, 1),
+                    "grade": d.grade.value,
+                    "details": d.details,
+                }
+                for d in self.dimensions
+            ],
+            "mutation_score": round(self.mutation_score, 1),
+            "static_issues": self.static_issues,
+            "sentinel_warnings": self.sentinel_warnings,
+            "baseline_flaky": self.baseline_flaky,
+            "gaps": self.gaps,
+            "created_at": self.created_at,
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), indent=2)
+
+
+@dataclass
+class Feedback:
+    """User feedback on an assessment."""
+
+    id: str = field(default_factory=_new_id)
+    assessment_id: str = ""
+    outcome: FeedbackOutcome = FeedbackOutcome.ACCEPTED
+    context: str = ""
+    created_at: str = field(default_factory=_utcnow)

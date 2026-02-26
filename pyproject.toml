@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "verdict"
+version = "0.1.0"
+description = "Verification intelligence for AI-generated code"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.9",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0,<2.0"]
+sentinel = ["git-sentinel>=0.4.0"]
+mutation = ["mutmut>=2.4.0"]
+dev = ["pytest>=7.0", "pytest-cov", "ruff", "mypy"]
+all = ["verdict[mcp,sentinel,mutation]"]
+
+[project.scripts]
+verdict = "verdict.cli.app:app"
+verdict-mcp = "verdict.mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/verdict"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+src = ["src"]
+line-length = 100
