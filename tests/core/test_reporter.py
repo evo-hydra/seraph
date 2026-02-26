@@ -93,33 +93,36 @@ class TestComputeCoChangeScore:
         assert compute_co_change_score(signals, ["a.py", "d.py"]) == 50.0
 
 
+def _build(**overrides):
+    """Build a report with sensible defaults, overridable per-test."""
+    defaults = dict(
+        repo_path="/tmp/test",
+        ref_before=None,
+        ref_after=None,
+        files_changed=["foo.py"],
+        mutation_score=100.0,
+        static_score=100.0,
+        baseline_score=100.0,
+        sentinel_risk_score=100.0,
+        co_change_score=100.0,
+        mutations=[],
+        static_findings=[],
+        baseline=None,
+        sentinel_signals=SentinelSignals(),
+    )
+    defaults.update(overrides)
+    return build_report(**defaults)
+
+
 class TestBuildReport:
     def test_perfect_scores(self):
-        report = build_report(
-            repo_path="/tmp/test",
-            ref_before=None,
-            ref_after=None,
-            files_changed=["foo.py"],
-            mutation_score=100.0,
-            static_score=100.0,
-            baseline_score=100.0,
-            sentinel_risk_score=100.0,
-            co_change_score=100.0,
-            mutations=[],
-            static_findings=[],
-            baseline=None,
-            sentinel_signals=SentinelSignals(),
-        )
+        report = _build()
         assert report.overall_score == 100.0
         assert report.overall_grade == Grade.A
         assert report.gaps == []
 
     def test_mixed_scores(self):
-        report = build_report(
-            repo_path="/tmp/test",
-            ref_before=None,
-            ref_after=None,
-            files_changed=["foo.py"],
+        report = _build(
             mutation_score=50.0,
             static_score=80.0,
             baseline_score=100.0,
@@ -127,8 +130,6 @@ class TestBuildReport:
             co_change_score=60.0,
             mutations=[MutationResult(status=MutantStatus.SURVIVED)],
             static_findings=[StaticFinding(severity=Severity.LOW)],
-            baseline=None,
-            sentinel_signals=SentinelSignals(),
         )
         # 50*0.3 + 80*0.2 + 100*0.15 + 70*0.2 + 60*0.15
         # = 15 + 16 + 15 + 14 + 9 = 69
@@ -137,21 +138,7 @@ class TestBuildReport:
         assert len(report.gaps) > 0
 
     def test_dimensions_count(self):
-        report = build_report(
-            repo_path="/tmp/test",
-            ref_before=None,
-            ref_after=None,
-            files_changed=[],
-            mutation_score=100.0,
-            static_score=100.0,
-            baseline_score=100.0,
-            sentinel_risk_score=100.0,
-            co_change_score=100.0,
-            mutations=[],
-            static_findings=[],
-            baseline=None,
-            sentinel_signals=SentinelSignals(),
-        )
+        report = _build(files_changed=[])
         assert len(report.dimensions) == 5
 
     def test_weights_sum_to_one(self):
@@ -159,8 +146,7 @@ class TestBuildReport:
         assert abs(total - 1.0) < 0.001
 
     def test_to_dict(self):
-        report = build_report(
-            repo_path="/tmp/test",
+        report = _build(
             ref_before="abc",
             ref_after="def",
             files_changed=["a.py"],
@@ -169,10 +155,6 @@ class TestBuildReport:
             baseline_score=90.0,
             sentinel_risk_score=90.0,
             co_change_score=90.0,
-            mutations=[],
-            static_findings=[],
-            baseline=None,
-            sentinel_signals=SentinelSignals(),
         )
         d = report.to_dict()
         assert d["ref_before"] == "abc"
@@ -181,38 +163,18 @@ class TestBuildReport:
         assert len(d["dimensions"]) == 5
 
     def test_f_grade_threshold(self):
-        report = build_report(
-            repo_path="/tmp/test",
-            ref_before=None,
-            ref_after=None,
-            files_changed=["foo.py"],
+        report = _build(
             mutation_score=10.0,
             static_score=10.0,
             baseline_score=10.0,
             sentinel_risk_score=10.0,
             co_change_score=10.0,
-            mutations=[],
-            static_findings=[],
-            baseline=None,
-            sentinel_signals=SentinelSignals(),
         )
         assert report.overall_grade == Grade.F
 
     def test_evaluated_dimensions_subset(self):
-        report = build_report(
-            repo_path="/tmp/test",
-            ref_before=None,
-            ref_after=None,
-            files_changed=["foo.py"],
+        report = _build(
             mutation_score=50.0,
-            static_score=100.0,
-            baseline_score=100.0,
-            sentinel_risk_score=100.0,
-            co_change_score=100.0,
-            mutations=[],
-            static_findings=[],
-            baseline=None,
-            sentinel_signals=SentinelSignals(),
             evaluated_dimensions={"mutation"},
         )
         # Only mutation is evaluated, so overall = mutation score

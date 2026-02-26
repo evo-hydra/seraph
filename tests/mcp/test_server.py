@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-import pytest
-
 from verdict.mcp.formatters import (
     format_assessment,
     format_feedback_response,

@@ -10,7 +10,7 @@ import pytest
 from verdict.core.baseline import _parse_test_failures, run_baseline
 
 
-class TestParsePytestFailures:
+class TestParseTestFailures:
     def test_no_failures(self):
         output = """\
 tests/test_a.py::test_one PASSED

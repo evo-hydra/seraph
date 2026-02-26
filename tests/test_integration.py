@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -22,15 +23,23 @@ from verdict.models.enums import FeedbackOutcome, Grade
 
 # ── Helpers ──────────────────────────────────────────────────────
 
+def _git(repo_path: Path, *args: str) -> None:
+    """Run a git command in the given repo, raising on failure."""
+    subprocess.run(
+        ["git", *args],
+        cwd=str(repo_path),
+        capture_output=True,
+        check=True,
+    )
+
+
 def _make_git_repo(tmp_path: Path) -> Path:
     """Create a git repo with an initial commit and a subsequent change."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    os.system(
-        f"cd {repo} && git init -q "
-        f"&& git config user.email test@test.com "
-        f"&& git config user.name Test"
-    )
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@test.com")
+    _git(repo, "config", "user.name", "Test")
 
     # Initial commit with a Python file and a passing test
     src = repo / "src"
@@ -50,7 +59,8 @@ def _make_git_repo(tmp_path: Path) -> Path:
         "def test_subtract():\n    assert subtract(5, 3) == 2\n"
     )
 
-    os.system(f"cd {repo} && git add -A && git commit -q -m 'initial'")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "initial")
 
     # Second commit: add a new function
     (src / "calc.py").write_text(
@@ -65,7 +75,8 @@ def _make_git_repo(tmp_path: Path) -> Path:
         "def test_multiply():\n    assert multiply(3, 4) == 12\n"
     )
 
-    os.system(f"cd {repo} && git add -A && git commit -q -m 'add multiply'")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "add multiply")
     return repo
 
 
@@ -195,24 +206,23 @@ class TestMCPServerIntegration:
         """verdict_history returns empty message for new repo."""
         repo = tmp_path / "empty_repo"
         repo.mkdir()
-        os.system(
-            f"cd {repo} && git init -q "
-            f"&& git config user.email test@test.com "
-            f"&& git config user.name Test "
-            f"&& touch x && git add x && git commit -q -m init"
-        )
+        _git(repo, "init", "-q")
+        _git(repo, "config", "user.email", "test@test.com")
+        _git(repo, "config", "user.name", "Test")
+        (repo / "x").touch()
+        _git(repo, "add", "x")
+        _git(repo, "commit", "-q", "-m", "init")
+
         # Pre-create store so it exists
-        VerdictStore(repo / ".verdict" / "verdict.db").open()
+        with VerdictStore(repo / ".verdict" / "verdict.db"):
+            pass
 
         with patch("verdict.mcp.server._get_repo_path", return_value=repo):
             from verdict.mcp.server import _get_store
-            store = _get_store(repo)
-            try:
+            with _get_store(repo) as store:
                 from verdict.mcp.formatters import format_history
                 result = format_history(store.get_assessments())
                 assert "No assessments" in result
-            finally:
-                store.close()
 
 
 # ── Performance Tests ────────────────────────────────────────────
@@ -264,7 +274,7 @@ class TestSentinelBridgeIntegration:
 
     def test_bridge_with_sentinel_repo(self):
         """If the sentinel repo has .sentinel/ data, test real bridge."""
-        sentinel_repo = Path("/home/evo-nirvana/dev/projects/sentinel")
+        sentinel_repo = Path(os.environ.get("SENTINEL_REPO", "/home/evo-nirvana/dev/projects/sentinel"))
         sentinel_db = sentinel_repo / ".sentinel" / "sentinel.db"
 
         if not sentinel_db.exists():
@@ -272,8 +282,7 @@ class TestSentinelBridgeIntegration:
 
         from verdict.core.bridge import SentinelBridge
 
-        bridge = SentinelBridge(sentinel_repo)
-        try:
+        with SentinelBridge(sentinel_repo) as bridge:
             assert bridge.available is True
 
             # Query with some known files
@@ -297,12 +306,10 @@ class TestSentinelBridgeIntegration:
                 ["src/sentinel/core/knowledge.py", "src/sentinel/core/verifier.py"],
             )
             assert 0 <= co_score <= 100
-        finally:
-            bridge.close()
 
     def test_bridge_pitfall_file_paths_matching(self):
         """If sentinel has pitfalls with file_paths, verify matching works."""
-        sentinel_repo = Path("/home/evo-nirvana/dev/projects/sentinel")
+        sentinel_repo = Path(os.environ.get("SENTINEL_REPO", "/home/evo-nirvana/dev/projects/sentinel"))
         sentinel_db = sentinel_repo / ".sentinel" / "sentinel.db"
 
         if not sentinel_db.exists():

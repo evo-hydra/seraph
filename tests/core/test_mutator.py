@@ -11,38 +11,11 @@ from verdict.core.mutator import (
     run_mutations,
     _map_mutmut_status,
 )
-from verdict.core.reporter import compute_mutation_score
 from verdict.models.assessment import MutationResult
 from verdict.models.enums import MutantStatus
 
 
-class TestComputeMutationScore:
-    def test_no_mutants(self):
-        assert compute_mutation_score([]) == 100.0
-
-    def test_all_killed(self):
-        results = [
-            MutationResult(status=MutantStatus.KILLED),
-            MutationResult(status=MutantStatus.KILLED),
-        ]
-        assert compute_mutation_score(results) == 100.0
-
-    def test_none_killed(self):
-        results = [
-            MutationResult(status=MutantStatus.SURVIVED),
-            MutationResult(status=MutantStatus.SURVIVED),
-        ]
-        assert compute_mutation_score(results) == 0.0
-
-    def test_mixed(self):
-        results = [
-            MutationResult(status=MutantStatus.KILLED),
-            MutationResult(status=MutantStatus.SURVIVED),
-            MutationResult(status=MutantStatus.KILLED),
-            MutationResult(status=MutantStatus.TIMEOUT),
-        ]
-        # 2 killed out of 4
-        assert compute_mutation_score(results) == 50.0
+# NOTE: compute_mutation_score tests live in test_reporter.py
 
 
 class TestMapMutmutStatus:

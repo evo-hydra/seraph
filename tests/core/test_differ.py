@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import subprocess
 
 import pytest
 
@@ -57,12 +57,16 @@ index aaa..bbb 100644
 
 class TestParseDiffGit:
     def test_parse_diff_with_real_repo(self, tmp_repo):
+        from tests.conftest import _git
+
         # Make a change
         (tmp_repo / "test.py").write_text("def hello():\n    pass\n")
-        os.system(f"cd {tmp_repo} && git add test.py && git commit -q -m 'add test'")
+        _git(tmp_repo, "add", "test.py")
+        _git(tmp_repo, "commit", "-q", "-m", "add test")
 
         (tmp_repo / "test.py").write_text("def hello():\n    return 'world'\n")
-        os.system(f"cd {tmp_repo} && git add test.py && git commit -q -m 'modify test'")
+        _git(tmp_repo, "add", "test.py")
+        _git(tmp_repo, "commit", "-q", "-m", "modify test")
 
         result = parse_diff(tmp_repo, ref_before="HEAD~1", ref_after="HEAD")
         assert len(result.files) == 1

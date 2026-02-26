@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -49,16 +48,19 @@ class TestVerdictEngine:
         report = engine.assess(tmp_repo)
 
         assert report.files_changed == ["src/foo.py"]
-        assert report.overall_grade in (Grade.A, Grade.B)
+        assert report.overall_grade == Grade.A
 
         # Verify persisted
         saved = store.get_assessment(report.id)
         assert saved is not None
 
     def test_skip_baseline_and_mutations(self, store: VerdictStore, tmp_repo: Path):
+        from tests.conftest import _git
+
         # Add a file change
         (tmp_repo / "new.py").write_text("x = 1\n")
-        os.system(f"cd {tmp_repo} && git add new.py && git commit -q -m 'add new'")
+        _git(tmp_repo, "add", "new.py")
+        _git(tmp_repo, "commit", "-q", "-m", "add new")
 
         engine = VerdictEngine(store, skip_baseline=True, skip_mutations=True)
         report = engine.assess(tmp_repo, ref_before="HEAD~1")
@@ -83,3 +85,8 @@ class TestVerdictEngine:
         report = engine.mutate_only(tmp_repo)
 
         assert report.mutation_score == 50.0
+
+        # Only mutation dimension should be evaluated
+        evaluated = [d for d in report.dimensions if d.evaluated]
+        assert len(evaluated) == 1
+        assert evaluated[0].name == "Mutation Score"

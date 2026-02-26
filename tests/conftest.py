@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,13 +10,25 @@ import pytest
 from verdict.core.store import VerdictStore
 
 
+def _git(repo_path: Path, *args: str) -> None:
+    """Run a git command in the given repo, raising on failure."""
+    subprocess.run(
+        ["git", *args],
+        cwd=str(repo_path),
+        capture_output=True,
+        check=True,
+    )
+
+
 @pytest.fixture
 def tmp_repo(tmp_path: Path) -> Path:
     """Create a temporary git repository."""
-    os.system(f"cd {tmp_path} && git init -q && git config user.email test@test.com && git config user.name Test")
-    # Create initial commit
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@test.com")
+    _git(tmp_path, "config", "user.name", "Test")
     (tmp_path / "README.md").write_text("# Test Repo\n")
-    os.system(f"cd {tmp_path} && git add -A && git commit -q -m 'init'")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "init")
     return tmp_path
 
 

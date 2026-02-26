@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
@@ -13,9 +12,11 @@ from verdict.core.static import (
     _ruff_severity,
     run_static_analysis,
 )
-from verdict.core.reporter import compute_static_score
 from verdict.models.assessment import StaticFinding
 from verdict.models.enums import AnalyzerType, Severity
+
+
+# NOTE: compute_static_score tests live in test_reporter.py
 
 
 class TestRuffSeverity:
@@ -66,20 +67,3 @@ class TestParseMypyLine:
         assert _parse_mypy_line("not a valid line", Path("/tmp")) is None
 
 
-class TestComputeStaticScore:
-    def test_no_findings(self):
-        assert compute_static_score([], 5) == 100.0
-
-    def test_no_files(self):
-        assert compute_static_score([], 0) == 100.0
-
-    def test_many_issues(self):
-        findings = [StaticFinding(severity=Severity.HIGH)] * 20
-        score = compute_static_score(findings, 2)
-        assert score == 0.0  # 20 * 5 weight / 2 files = 50 per file, capped
-
-    def test_mild_issues(self):
-        findings = [StaticFinding(severity=Severity.LOW)] * 3
-        score = compute_static_score(findings, 3)
-        # 3 * 1 weight / 3 files = 1 per file → 100 - 10 = 90
-        assert score == 90.0
