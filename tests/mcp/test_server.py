@@ -1,14 +1,17 @@
-"""Tests for MCP server."""
+"""Tests for MCP server formatters."""
 
 from __future__ import annotations
 
 from verdict.mcp.formatters import (
+    MAX_OUTPUT_CHARS,
+    _truncate,
     format_assessment,
     format_feedback_response,
     format_history,
     format_mutations,
 )
-from verdict.models.assessment import StoredAssessment
+from verdict.models.assessment import MutationResult, StoredAssessment
+from verdict.models.enums import MutantStatus
 
 
 class TestFormatAssessment:
@@ -34,6 +37,29 @@ class TestFormatAssessment:
         output = format_assessment({"overall_grade": "?", "overall_score": 0})
         assert "## Verdict Assessment" in output
 
+    def test_unevaluated_dimensions(self):
+        report = {
+            "overall_grade": "B",
+            "overall_score": 75,
+            "dimensions": [
+                {"name": "Mutation Score", "grade": "A", "raw_score": 90.0, "details": "9/10", "evaluated": True},
+                {"name": "Static", "evaluated": False},
+            ],
+        }
+        output = format_assessment(report)
+        assert "Mutation Score" in output
+        assert "90.0%" in output
+        assert "N/A (not evaluated)" in output
+
+    def test_malformed_dimension_uses_defaults(self):
+        report = {
+            "overall_grade": "?",
+            "overall_score": 0,
+            "dimensions": [{}],
+        }
+        output = format_assessment(report)
+        assert "?" in output
+
 
 class TestFormatHistory:
     def test_empty(self):
@@ -54,6 +80,21 @@ class TestFormatHistory:
         assert "abc12345" in output
         assert "A" in output
 
+    def test_zero_values_not_hidden(self):
+        entries = [
+            StoredAssessment(
+                id="abc12345",
+                grade="F",
+                mutation_score=0.0,
+                static_issues=0,
+                files_changed=[],
+                created_at="2026-01-01",
+            )
+        ]
+        output = format_history(entries)
+        assert "0.0%" in output
+        assert "0 issues" in output
+
 
 class TestFormatMutations:
     def test_no_mutations(self):
@@ -61,8 +102,6 @@ class TestFormatMutations:
         assert "100%" in output
 
     def test_with_mutations(self):
-        from verdict.models.assessment import MutationResult
-        from verdict.models.enums import MutantStatus
         muts = [
             MutationResult(file_path="foo.py", line_number=5, operator="negate", status=MutantStatus.SURVIVED),
             MutationResult(file_path="foo.py", line_number=10, operator="remove", status=MutantStatus.KILLED),
@@ -77,3 +116,19 @@ class TestFormatFeedback:
         output = format_feedback_response("abc12345678", "accepted")
         assert "accepted" in output
         assert "abc12345" in output
+
+
+class TestTruncate:
+    def test_short_text_unchanged(self):
+        text = "hello world"
+        assert _truncate(text) == text
+
+    def test_exact_limit_unchanged(self):
+        text = "x" * MAX_OUTPUT_CHARS
+        assert _truncate(text) == text
+
+    def test_over_limit_truncated(self):
+        text = "x" * (MAX_OUTPUT_CHARS + 100)
+        result = _truncate(text)
+        assert len(result) <= MAX_OUTPUT_CHARS
+        assert result.endswith("... (output truncated)")

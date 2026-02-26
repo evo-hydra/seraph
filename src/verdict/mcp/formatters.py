@@ -20,10 +20,11 @@ def format_assessment(report_dict: dict) -> str:
     for dim in report_dict.get("dimensions", []):
         if dim.get("evaluated", True):
             lines.append(
-                f"- **{dim['name']}**: {dim['grade']} ({dim['raw_score']}%) — {dim['details']}"
+                f"- **{dim.get('name', '?')}**: {dim.get('grade', '?')} "
+                f"({dim.get('raw_score', '?')}%) — {dim.get('details', '')}"
             )
         else:
-            lines.append(f"- **{dim['name']}**: N/A (not evaluated)")
+            lines.append(f"- **{dim.get('name', '?')}**: N/A (not evaluated)")
     lines.append("")
 
     # Gaps
@@ -64,10 +65,12 @@ def format_history(assessments: list) -> str:
 
     for a in assessments:
         file_count = len(a.files_changed) if a.files_changed else 0
+        mutation_display = f"{a.mutation_score}%" if a.mutation_score is not None else "?%"
+        static_display = f"{a.static_issues} issues" if a.static_issues is not None else "? issues"
         lines.append(
             f"- **{a.grade or '?'}** | "
-            f"mutation={a.mutation_score or '?'}% | "
-            f"static={a.static_issues or '?'} issues | "
+            f"mutation={mutation_display} | "
+            f"static={static_display} | "
             f"{file_count} files | "
             f"{a.created_at or '?'} | "
             f"id={a.id[:8] if a.id else '?'}"
@@ -93,7 +96,7 @@ def format_mutations(mutations: list, score: float) -> str:
     # Group by status
     by_status: dict[str, list] = {}
     for m in mutations:
-        status = m.status.value if hasattr(m.status, "value") else str(m.status)
+        status = m.status.value
         by_status.setdefault(status, []).append(m)
 
     for status, muts in sorted(by_status.items()):

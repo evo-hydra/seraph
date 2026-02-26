@@ -23,11 +23,9 @@ def _get_repo_path() -> Path:
 
 
 def _get_store(repo_path: Path) -> VerdictStore:
-    """Create and open a VerdictStore for the repo."""
+    """Create a VerdictStore for the repo (use as context manager)."""
     db_path = repo_path / ".verdict" / "verdict.db"
-    store = VerdictStore(db_path)
-    store.open()
-    return store
+    return VerdictStore(db_path)
 
 
 def create_server():
@@ -58,21 +56,21 @@ def create_server():
             skip_mutations: Skip mutation testing (much faster)
         """
         repo_path = _get_repo_path()
-        store = _get_store(repo_path)
         try:
-            engine = VerdictEngine(
-                store,
-                skip_baseline=skip_baseline,
-                skip_mutations=skip_mutations,
-            )
-            report = engine.assess(
-                repo_path,
-                ref_before=ref_before or None,
-                ref_after=ref_after or None,
-            )
-            return format_assessment(report.to_dict())
-        finally:
-            store.close()
+            with _get_store(repo_path) as store:
+                engine = VerdictEngine(
+                    store,
+                    skip_baseline=skip_baseline,
+                    skip_mutations=skip_mutations,
+                )
+                report = engine.assess(
+                    repo_path,
+                    ref_before=ref_before or None,
+                    ref_after=ref_after or None,
+                )
+                return format_assessment(report.to_dict())
+        except Exception as exc:
+            return f"Assessment failed: {exc}"
 
     @mcp.tool()
     def verdict_mutate(
@@ -89,17 +87,17 @@ def create_server():
             ref_after: Git ref after changes (default: working tree)
         """
         repo_path = _get_repo_path()
-        store = _get_store(repo_path)
         try:
-            engine = VerdictEngine(store)
-            report = engine.mutate_only(
-                repo_path,
-                ref_before=ref_before or None,
-                ref_after=ref_after or None,
-            )
-            return format_mutations(report.mutations, report.mutation_score)
-        finally:
-            store.close()
+            with _get_store(repo_path) as store:
+                engine = VerdictEngine(store)
+                report = engine.mutate_only(
+                    repo_path,
+                    ref_before=ref_before or None,
+                    ref_after=ref_after or None,
+                )
+                return format_mutations(report.mutations, report.mutation_score)
+        except Exception as exc:
+            return f"Mutation testing failed: {exc}"
 
     @mcp.tool()
     def verdict_history(
@@ -113,12 +111,9 @@ def create_server():
             offset: Number of results to skip (default 0)
         """
         repo_path = _get_repo_path()
-        store = _get_store(repo_path)
-        try:
+        with _get_store(repo_path) as store:
             assessments = store.get_assessments(limit=limit, offset=offset)
             return format_history(assessments)
-        finally:
-            store.close()
 
     @mcp.tool()
     def verdict_feedback(
@@ -136,8 +131,7 @@ def create_server():
             context: Optional explanation
         """
         repo_path = _get_repo_path()
-        store = _get_store(repo_path)
-        try:
+        with _get_store(repo_path) as store:
             # Validate outcome
             try:
                 fb_outcome = FeedbackOutcome(outcome)
@@ -156,8 +150,6 @@ def create_server():
             )
             store.save_feedback(fb)
             return format_feedback_response(assessment_id, outcome)
-        finally:
-            store.close()
 
     return mcp
 
