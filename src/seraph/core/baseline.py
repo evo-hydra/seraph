@@ -6,7 +6,7 @@ import logging
 import subprocess
 from pathlib import Path
 
-from verdict.models.assessment import BaselineResult
+from seraph.models.assessment import BaselineResult
 
 logger = logging.getLogger(__name__)
 

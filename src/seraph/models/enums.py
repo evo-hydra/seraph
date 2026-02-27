@@ -1,4 +1,4 @@
-"""Enums used across the Verdict system."""
+"""Enums used across the Seraph system."""
 
 from __future__ import annotations
 

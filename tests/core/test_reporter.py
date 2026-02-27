@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from verdict.core.reporter import (
+from seraph.core.reporter import (
     build_report,
     compute_baseline_score,
     compute_co_change_score,
@@ -13,7 +13,7 @@ from verdict.core.reporter import (
     compute_static_score,
     DIMENSION_WEIGHTS,
 )
-from verdict.models.assessment import (
+from seraph.models.assessment import (
     BaselineResult,
     HotFileInfo,
     MissingCoChange,
@@ -22,7 +22,7 @@ from verdict.models.assessment import (
     SentinelSignals,
     StaticFinding,
 )
-from verdict.models.enums import Grade, MutantStatus, Severity
+from seraph.models.enums import Grade, MutantStatus, Severity
 
 
 class TestComputeBaselineScore:

@@ -1,4 +1,4 @@
-"""Tests for VerdictStore."""
+"""Tests for SeraphStore."""
 
 from __future__ import annotations
 
@@ -6,18 +6,18 @@ from unittest.mock import patch
 
 import pytest
 
-from verdict.core.store import VerdictStore, SCHEMA_VERSION, _MIGRATIONS, _migrate_v1_to_v2
-from verdict.models.assessment import (
+from seraph.core.store import SeraphStore, SCHEMA_VERSION, _MIGRATIONS, _migrate_v1_to_v2
+from seraph.models.assessment import (
     AssessmentReport,
     BaselineResult,
     Feedback,
     MutationResult,
 )
-from verdict.models.enums import FeedbackOutcome, Grade, MutantStatus
+from seraph.models.enums import FeedbackOutcome, Grade, MutantStatus
 
 
-class TestVerdictStore:
-    def test_open_creates_tables(self, store: VerdictStore):
+class TestSeraphStore:
+    def test_open_creates_tables(self, store: SeraphStore):
         cur = store.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
@@ -26,19 +26,19 @@ class TestVerdictStore:
         assert "baselines" in tables
         assert "mutation_cache" in tables
         assert "feedback" in tables
-        assert "verdict_meta" in tables
+        assert "seraph_meta" in tables
 
-    def test_schema_version(self, store: VerdictStore):
+    def test_schema_version(self, store: SeraphStore):
         cur = store.conn.execute(
-            "SELECT value FROM verdict_meta WHERE key = 'schema_version'"
+            "SELECT value FROM seraph_meta WHERE key = 'schema_version'"
         )
         assert cur.fetchone()["value"] == str(SCHEMA_VERSION)
 
-    def test_wal_mode(self, store: VerdictStore):
+    def test_wal_mode(self, store: SeraphStore):
         cur = store.conn.execute("PRAGMA journal_mode")
         assert cur.fetchone()[0] == "wal"
 
-    def test_save_and_get_assessment(self, store: VerdictStore):
+    def test_save_and_get_assessment(self, store: SeraphStore):
         report = AssessmentReport(
             repo_path="/tmp/test",
             files_changed=["foo.py", "bar.py"],
@@ -56,7 +56,7 @@ class TestVerdictStore:
         assert fetched.mutation_score == 90.0
         assert fetched.files_changed == ["foo.py", "bar.py"]
 
-    def test_get_assessments_pagination(self, store: VerdictStore):
+    def test_get_assessments_pagination(self, store: SeraphStore):
         for i in range(5):
             report = AssessmentReport(
                 repo_path="/tmp/test",
@@ -74,7 +74,7 @@ class TestVerdictStore:
         page2 = store.get_assessments(limit=2, offset=2)
         assert len(page2) == 2
 
-    def test_get_assessments_repo_path_filter(self, store: VerdictStore):
+    def test_get_assessments_repo_path_filter(self, store: SeraphStore):
         for repo in ["/tmp/a", "/tmp/a", "/tmp/b"]:
             report = AssessmentReport(
                 repo_path=repo,
@@ -92,7 +92,7 @@ class TestVerdictStore:
         none_results = store.get_assessments(repo_path="/tmp/nope")
         assert len(none_results) == 0
 
-    def test_save_assessment_with_mutations(self, store: VerdictStore):
+    def test_save_assessment_with_mutations(self, store: SeraphStore):
         mutations = [
             MutationResult(file_path="foo.py", mutant_id="1", operator="negate", status=MutantStatus.KILLED),
             MutationResult(file_path="foo.py", mutant_id="2", operator="remove", status=MutantStatus.SURVIVED),
@@ -110,7 +110,7 @@ class TestVerdictStore:
         statuses = {m.status for m in saved_mutations}
         assert statuses == {"killed", "survived"}
 
-    def test_save_assessment_with_baseline(self, store: VerdictStore):
+    def test_save_assessment_with_baseline(self, store: SeraphStore):
         baseline = BaselineResult(
             repo_path="/tmp/test",
             flaky_tests=["test_a", "test_b"],
@@ -129,7 +129,7 @@ class TestVerdictStore:
         assert saved_baseline.pass_rate == 0.95
         assert saved_baseline.flaky_tests == ["test_a", "test_b"]
 
-    def test_save_and_get_feedback(self, store: VerdictStore):
+    def test_save_and_get_feedback(self, store: SeraphStore):
         report = AssessmentReport(
             repo_path="/tmp/test",
             files_changed=["foo.py"],
@@ -149,19 +149,19 @@ class TestVerdictStore:
         assert feedbacks[0].outcome == "accepted"
         assert feedbacks[0].context == "Good assessment"
 
-    def test_stats(self, store: VerdictStore):
+    def test_stats(self, store: SeraphStore):
         stats = store.stats()
         assert stats["assessments"] == 0
         assert stats["feedback"] == 0
 
     def test_context_manager(self, tmp_path):
         db_path = tmp_path / "test.db"
-        with VerdictStore(db_path) as s:
+        with SeraphStore(db_path) as s:
             s.conn.execute("SELECT 1")
         # Should be closed
         assert s._conn is None
 
-    def test_get_nonexistent_assessment(self, store: VerdictStore):
+    def test_get_nonexistent_assessment(self, store: SeraphStore):
         assert store.get_assessment("nonexistent") is None
 
 
@@ -171,9 +171,9 @@ class TestMigrationSystem:
         db_path = tmp_path / "migrate.db"
 
         # Create store at version 1
-        with VerdictStore(db_path) as store:
+        with SeraphStore(db_path) as store:
             store.conn.execute(
-                "INSERT OR REPLACE INTO verdict_meta (key, value) VALUES ('schema_version', '1')"
+                "INSERT OR REPLACE INTO seraph_meta (key, value) VALUES ('schema_version', '1')"
             )
             store.conn.commit()
 
@@ -185,15 +185,15 @@ class TestMigrationSystem:
             migration_ran.append(True)
 
         # Patch SCHEMA_VERSION to 2 and register migration
-        with patch("verdict.core.store.SCHEMA_VERSION", 2), \
+        with patch("seraph.core.store.SCHEMA_VERSION", 2), \
              patch.dict(_MIGRATIONS, {1: _migrate_v1_to_v2}):
-            with VerdictStore(db_path) as store:
+            with SeraphStore(db_path) as store:
                 pass
 
         assert len(migration_ran) == 1
 
         # Verify the column was actually added
-        with VerdictStore(db_path) as store:
+        with SeraphStore(db_path) as store:
             cur = store.conn.execute("PRAGMA table_info(assessments)")
             columns = {row["name"] for row in cur.fetchall()}
             assert "extra" in columns
@@ -208,7 +208,7 @@ class TestMigrationSystem:
             migration_ran.append(True)
 
         with patch.dict(_MIGRATIONS, {1: _should_not_run}):
-            with VerdictStore(db_path) as store:
+            with SeraphStore(db_path) as store:
                 pass
 
         assert len(migration_ran) == 0
@@ -218,15 +218,15 @@ class TestMigrationSystem:
         db_path = tmp_path / "version.db"
 
         # Create at version 1
-        with VerdictStore(db_path) as store:
+        with SeraphStore(db_path) as store:
             pass
 
         # Bump to version 2
-        with patch("verdict.core.store.SCHEMA_VERSION", 2), \
+        with patch("seraph.core.store.SCHEMA_VERSION", 2), \
              patch.dict(_MIGRATIONS, {1: lambda conn: None}):
-            with VerdictStore(db_path) as store:
+            with SeraphStore(db_path) as store:
                 cur = store.conn.execute(
-                    "SELECT value FROM verdict_meta WHERE key = 'schema_version'"
+                    "SELECT value FROM seraph_meta WHERE key = 'schema_version'"
                 )
                 assert cur.fetchone()["value"] == "2"
 
@@ -239,7 +239,7 @@ class TestMigrationSystem:
         # Create a v1 database manually (without indices)
         conn = sqlite3.connect(str(db_path))
         conn.executescript("""
-            CREATE TABLE IF NOT EXISTS verdict_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS seraph_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS assessments (
                 id TEXT PRIMARY KEY, repo_path TEXT, ref_before TEXT, ref_after TEXT,
                 files_changed TEXT, mutation_score REAL, static_issues INTEGER,
@@ -260,12 +260,12 @@ class TestMigrationSystem:
                 id TEXT PRIMARY KEY, assessment_id TEXT, outcome TEXT,
                 context TEXT, created_at TEXT DEFAULT (datetime('now'))
             );
-            INSERT INTO verdict_meta (key, value) VALUES ('schema_version', '1');
+            INSERT INTO seraph_meta (key, value) VALUES ('schema_version', '1');
         """)
         conn.close()
 
         # Open with current code — should run migration
-        with VerdictStore(db_path) as store:
+        with SeraphStore(db_path) as store:
             cur = store.conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='index' ORDER BY name"
             )
@@ -279,7 +279,7 @@ class TestMigrationSystem:
 
 
 class TestPrune:
-    def test_prune_deletes_old(self, store: VerdictStore):
+    def test_prune_deletes_old(self, store: SeraphStore):
         """Prune deletes assessments older than retention days."""
         report = AssessmentReport(
             repo_path="/tmp/test",
@@ -301,7 +301,7 @@ class TestPrune:
         # Verify it's gone
         assert store.get_assessment(report.id) is None
 
-    def test_prune_preserves_recent(self, store: VerdictStore):
+    def test_prune_preserves_recent(self, store: SeraphStore):
         """Prune does not delete recent assessments."""
         report = AssessmentReport(
             repo_path="/tmp/test",
@@ -316,7 +316,7 @@ class TestPrune:
         # Verify it's still there
         assert store.get_assessment(report.id) is not None
 
-    def test_prune_cascades(self, store: VerdictStore):
+    def test_prune_cascades(self, store: SeraphStore):
         """Prune also deletes feedback and mutations for old assessments."""
         mutations = [
             MutationResult(file_path="foo.py", mutant_id="1", operator="negate", status=MutantStatus.KILLED),

@@ -1,4 +1,4 @@
-"""Data models for Verdict assessments."""
+"""Data models for Seraph assessments."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from verdict.models.enums import (
+from seraph.models.enums import (
     AnalyzerType,
     FeedbackOutcome,
     Grade,
@@ -188,7 +188,7 @@ class AssessmentReport:
         return json.dumps(self.to_dict(), indent=2)
 
 
-# ── Stored Data Models (returned by VerdictStore) ────────────────
+# ── Stored Data Models (returned by SeraphStore) ────────────────
 
 
 @dataclass

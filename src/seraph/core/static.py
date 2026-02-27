@@ -7,8 +7,8 @@ import logging
 import subprocess
 from pathlib import Path
 
-from verdict.models.assessment import StaticFinding
-from verdict.models.enums import AnalyzerType, Severity
+from seraph.models.assessment import StaticFinding
+from seraph.models.enums import AnalyzerType, Severity
 
 logger = logging.getLogger(__name__)
 

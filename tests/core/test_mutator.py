@@ -6,12 +6,12 @@ from unittest.mock import patch
 
 import pytest
 
-from verdict.core.mutator import (
+from seraph.core.mutator import (
     run_mutations,
     _map_mutmut_status,
 )
-from verdict.models.assessment import MutationResult
-from verdict.models.enums import MutantStatus
+from seraph.models.assessment import MutationResult
+from seraph.models.enums import MutantStatus
 
 
 # NOTE: compute_mutation_score tests live in test_reporter.py
@@ -37,14 +37,14 @@ class TestMapMutmutStatus:
 
 
 class TestRunMutations:
-    @patch("verdict.core.mutator._mutate_single_file")
+    @patch("seraph.core.mutator._mutate_single_file")
     def test_skips_non_python(self, mock_mutate, tmp_path):
         (tmp_path / "readme.md").touch()
         results = run_mutations(tmp_path, ["readme.md"])
         mock_mutate.assert_not_called()
         assert results == []
 
-    @patch("verdict.core.mutator._mutate_single_file")
+    @patch("seraph.core.mutator._mutate_single_file")
     def test_runs_on_python_files(self, mock_mutate, tmp_path):
         (tmp_path / "foo.py").write_text("x = 1")
         mock_mutate.return_value = [

@@ -1,4 +1,4 @@
-"""Verdict CLI — Typer-based command interface."""
+"""Seraph CLI — Typer-based command interface."""
 
 from __future__ import annotations
 
@@ -11,16 +11,16 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from verdict.config import VerdictConfig
-from verdict.core.engine import VerdictEngine
-from verdict.core.store import VerdictStore
-from verdict.models.assessment import AssessmentReport, Feedback
-from verdict.models.enums import FeedbackOutcome
+from seraph.config import SeraphConfig
+from seraph.core.engine import SeraphEngine
+from seraph.core.store import SeraphStore
+from seraph.models.assessment import AssessmentReport, Feedback
+from seraph.models.enums import FeedbackOutcome
 
 logger = logging.getLogger(__name__)
 
 app = typer.Typer(
-    name="verdict",
+    name="seraph",
     help="Verification intelligence for AI-generated code.",
     no_args_is_help=True,
 )
@@ -34,17 +34,17 @@ _verbose: bool = False
 def main_callback(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
 ) -> None:
-    """Verdict — verification intelligence for AI-generated code."""
+    """Seraph — verification intelligence for AI-generated code."""
     global _verbose
     _verbose = verbose
 
 
-def _get_store(repo_path: Path, config: VerdictConfig | None = None) -> VerdictStore:
+def _get_store(repo_path: Path, config: SeraphConfig | None = None) -> SeraphStore:
     if config:
         db_path = repo_path / config.pipeline.db_dir / config.pipeline.db_name
     else:
-        db_path = repo_path / ".verdict" / "verdict.db"
-    return VerdictStore(db_path)
+        db_path = repo_path / ".seraph" / "seraph.db"
+    return SeraphStore(db_path)
 
 
 @app.command()
@@ -59,15 +59,15 @@ def assess(
 ) -> None:
     """Run a full assessment on code changes."""
     repo_path = repo_path.resolve()
-    config = VerdictConfig.load(repo_path)
+    config = SeraphConfig.load(repo_path)
 
     # Setup logging after config is loaded
-    from verdict.logging_setup import setup_logging
+    from seraph.logging_setup import setup_logging
     setup_logging(config.logging, verbose=_verbose)
 
     try:
         with _get_store(repo_path, config) as store:
-            engine = VerdictEngine(
+            engine = SeraphEngine(
                 store,
                 config=config,
                 test_cmd=test_cmd,
@@ -173,7 +173,7 @@ def prune(
 ) -> None:
     """Delete old assessment data beyond the retention period."""
     repo_path = repo_path.resolve()
-    config = VerdictConfig.load(repo_path)
+    config = SeraphConfig.load(repo_path)
     retention_days = days if days is not None else config.retention.retention_days
 
     if not yes:
@@ -203,7 +203,7 @@ def _display_report(report: AssessmentReport) -> None:
         f"[bold {grade_style}]{report.overall_grade.value}[/bold {grade_style}] "
         f"({report.overall_score}/100) | "
         f"{len(report.files_changed)} files changed",
-        title="Verdict Assessment",
+        title="Seraph Assessment",
     ))
 
     # Dimensions table

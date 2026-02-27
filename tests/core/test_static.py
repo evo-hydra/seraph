@@ -7,13 +7,13 @@ from unittest.mock import patch
 
 import pytest
 
-from verdict.core.static import (
+from seraph.core.static import (
     _parse_mypy_line,
     _ruff_severity,
     run_static_analysis,
 )
-from verdict.models.assessment import StaticFinding
-from verdict.models.enums import AnalyzerType, Severity
+from seraph.models.assessment import StaticFinding
+from seraph.models.enums import AnalyzerType, Severity
 
 
 # NOTE: compute_static_score tests live in test_reporter.py

@@ -12,7 +12,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from verdict.models.assessment import (
+from seraph.models.assessment import (
     HotFileInfo,
     MissingCoChange,
     PitfallMatch,

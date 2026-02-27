@@ -7,8 +7,8 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
-from verdict.models.assessment import MutationResult
-from verdict.models.enums import MutantStatus
+from seraph.models.assessment import MutationResult
+from seraph.models.enums import MutantStatus
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def _mutate_single_file(
             )
         ]
     except FileNotFoundError:
-        logger.warning("mutmut not installed — install with: pip install 'verdict[mutation]'")
+        logger.warning("mutmut not installed — install with: pip install 'seraph[mutation]'")
         return []
 
     return _parse_mutmut_results(repo_path, file_path)

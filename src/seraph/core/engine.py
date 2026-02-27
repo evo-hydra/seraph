@@ -1,16 +1,16 @@
-"""VerdictEngine — 7-step assessment pipeline."""
+"""SeraphEngine — 7-step assessment pipeline."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from verdict.config import VerdictConfig
-from verdict.core.baseline import run_baseline
-from verdict.core.bridge import SentinelBridge
-from verdict.core.differ import parse_diff
-from verdict.core.mutator import run_mutations
-from verdict.core.reporter import (
+from seraph.config import SeraphConfig
+from seraph.core.baseline import run_baseline
+from seraph.core.bridge import SentinelBridge
+from seraph.core.differ import parse_diff
+from seraph.core.mutator import run_mutations
+from seraph.core.reporter import (
     build_report,
     compute_baseline_score,
     compute_co_change_score,
@@ -18,9 +18,9 @@ from verdict.core.reporter import (
     compute_risk_score,
     compute_static_score,
 )
-from verdict.core.static import run_static_analysis
-from verdict.core.store import VerdictStore
-from verdict.models.assessment import (
+from seraph.core.static import run_static_analysis
+from seraph.core.store import SeraphStore
+from seraph.models.assessment import (
     AssessmentReport,
     SentinelSignals,
 )
@@ -28,7 +28,7 @@ from verdict.models.assessment import (
 logger = logging.getLogger(__name__)
 
 
-class VerdictEngine:
+class SeraphEngine:
     """Main assessment engine implementing the 7-step pipeline.
 
     Steps:
@@ -43,9 +43,9 @@ class VerdictEngine:
 
     def __init__(
         self,
-        store: VerdictStore,
+        store: SeraphStore,
         *,
-        config: VerdictConfig | None = None,
+        config: SeraphConfig | None = None,
         test_cmd: str = "pytest",
         baseline_runs: int | None = None,
         mutation_timeout: int | None = None,
@@ -54,7 +54,7 @@ class VerdictEngine:
         skip_mutations: bool = False,
     ):
         self._store = store
-        self._config = config or VerdictConfig()
+        self._config = config or SeraphConfig()
         self._test_cmd = test_cmd
         self._baseline_runs = baseline_runs or self._config.pipeline.baseline_runs
         self._mutation_timeout = mutation_timeout or self._config.timeouts.mutation_per_file

@@ -1,4 +1,4 @@
-"""Shared test fixtures for Verdict."""
+"""Shared test fixtures for Seraph."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from verdict.core.store import VerdictStore
+from seraph.core.store import SeraphStore
 
 
 def _git(repo_path: Path, *args: str) -> None:
@@ -33,10 +33,10 @@ def tmp_repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> VerdictStore:
-    """Create a temporary VerdictStore."""
-    db_path = tmp_path / ".verdict" / "verdict.db"
-    s = VerdictStore(db_path)
+def store(tmp_path: Path) -> SeraphStore:
+    """Create a temporary SeraphStore."""
+    db_path = tmp_path / ".seraph" / "seraph.db"
+    s = SeraphStore(db_path)
     s.open()
     yield s
     s.close()

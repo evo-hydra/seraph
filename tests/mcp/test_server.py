@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from verdict.mcp.formatters import (
+from seraph.mcp.formatters import (
     MAX_OUTPUT_CHARS,
     _truncate,
     format_assessment,
@@ -10,8 +10,8 @@ from verdict.mcp.formatters import (
     format_history,
     format_mutations,
 )
-from verdict.models.assessment import MutationResult, StoredAssessment
-from verdict.models.enums import MutantStatus
+from seraph.models.assessment import MutationResult, StoredAssessment
+from seraph.models.enums import MutantStatus
 
 
 class TestFormatAssessment:
@@ -28,14 +28,14 @@ class TestFormatAssessment:
             "created_at": "2026-01-01 00:00:00",
         }
         output = format_assessment(report)
-        assert "## Verdict Assessment: B" in output
+        assert "## Seraph Assessment: B" in output
         assert "78.5/100" in output
         assert "Mutation Score" in output
         assert "abc12345" in output
 
     def test_empty_report(self):
         output = format_assessment({"overall_grade": "?", "overall_score": 0})
-        assert "## Verdict Assessment" in output
+        assert "## Seraph Assessment" in output
 
     def test_unevaluated_dimensions(self):
         report = {

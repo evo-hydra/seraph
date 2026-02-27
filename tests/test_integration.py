@@ -1,4 +1,4 @@
-"""Phase E: Integration tests for Verdict.
+"""Phase E: Integration tests for Seraph.
 
 Tests the end-to-end pipeline, MCP server with mock invocations,
 and performance characteristics.
@@ -15,10 +15,10 @@ from unittest.mock import patch
 
 import pytest
 
-from verdict.core.engine import VerdictEngine
-from verdict.core.store import VerdictStore
-from verdict.models.assessment import AssessmentReport, Feedback
-from verdict.models.enums import FeedbackOutcome, Grade
+from seraph.core.engine import SeraphEngine
+from seraph.core.store import SeraphStore
+from seraph.models.assessment import AssessmentReport, Feedback
+from seraph.models.enums import FeedbackOutcome, Grade
 
 
 # ── Helpers ──────────────────────────────────────────────────────
@@ -83,15 +83,15 @@ def _make_git_repo(tmp_path: Path) -> Path:
 # ── End-to-End Tests ─────────────────────────────────────────────
 
 class TestEndToEnd:
-    """Run verdict assess on a real git repo (no Sentinel data, no mutmut)."""
+    """Run seraph assess on a real git repo (no Sentinel data, no mutmut)."""
 
     def test_assess_real_repo_skip_heavy(self, tmp_path: Path):
         """Full pipeline on a real repo, skipping baseline and mutations."""
         repo = _make_git_repo(tmp_path)
-        db_path = repo / ".verdict" / "verdict.db"
+        db_path = repo / ".seraph" / "seraph.db"
 
-        with VerdictStore(db_path) as store:
-            engine = VerdictEngine(
+        with SeraphStore(db_path) as store:
+            engine = SeraphEngine(
                 store,
                 skip_baseline=True,
                 skip_mutations=True,
@@ -106,7 +106,7 @@ class TestEndToEnd:
         assert report.created_at  # Has a timestamp
 
         # Verify it was persisted
-        with VerdictStore(db_path) as store:
+        with SeraphStore(db_path) as store:
             saved = store.get_assessment(report.id)
             assert saved is not None
             assert saved.grade == report.overall_grade.value
@@ -114,10 +114,10 @@ class TestEndToEnd:
     def test_assess_produces_valid_json(self, tmp_path: Path):
         """Report serializes to valid JSON."""
         repo = _make_git_repo(tmp_path)
-        db_path = repo / ".verdict" / "verdict.db"
+        db_path = repo / ".seraph" / "seraph.db"
 
-        with VerdictStore(db_path) as store:
-            engine = VerdictEngine(store, skip_baseline=True, skip_mutations=True)
+        with SeraphStore(db_path) as store:
+            engine = SeraphEngine(store, skip_baseline=True, skip_mutations=True)
             report = engine.assess(repo, ref_before="HEAD~1")
 
         report_json = report.to_json()
@@ -129,10 +129,10 @@ class TestEndToEnd:
     def test_assess_no_changes(self, tmp_path: Path):
         """Assessing HEAD with no diff returns perfect score."""
         repo = _make_git_repo(tmp_path)
-        db_path = repo / ".verdict" / "verdict.db"
+        db_path = repo / ".seraph" / "seraph.db"
 
-        with VerdictStore(db_path) as store:
-            engine = VerdictEngine(store, skip_baseline=True, skip_mutations=True)
+        with SeraphStore(db_path) as store:
+            engine = SeraphEngine(store, skip_baseline=True, skip_mutations=True)
             report = engine.assess(repo)
 
         assert report.files_changed == []
@@ -142,10 +142,10 @@ class TestEndToEnd:
     def test_feedback_round_trip(self, tmp_path: Path):
         """Can submit feedback and retrieve it."""
         repo = _make_git_repo(tmp_path)
-        db_path = repo / ".verdict" / "verdict.db"
+        db_path = repo / ".seraph" / "seraph.db"
 
-        with VerdictStore(db_path) as store:
-            engine = VerdictEngine(store, skip_baseline=True, skip_mutations=True)
+        with SeraphStore(db_path) as store:
+            engine = SeraphEngine(store, skip_baseline=True, skip_mutations=True)
             report = engine.assess(repo, ref_before="HEAD~1")
 
             fb = Feedback(
@@ -162,10 +162,10 @@ class TestEndToEnd:
     def test_history_ordering(self, tmp_path: Path):
         """Multiple assessments are stored and retrievable."""
         repo = _make_git_repo(tmp_path)
-        db_path = repo / ".verdict" / "verdict.db"
+        db_path = repo / ".seraph" / "seraph.db"
 
-        with VerdictStore(db_path) as store:
-            engine = VerdictEngine(store, skip_baseline=True, skip_mutations=True)
+        with SeraphStore(db_path) as store:
+            engine = SeraphEngine(store, skip_baseline=True, skip_mutations=True)
 
             r1 = engine.assess(repo, ref_before="HEAD~1")
             r2 = engine.assess(repo, ref_before="HEAD~1")
@@ -183,7 +183,7 @@ class TestMCPServerIntegration:
     """Test MCP server tool functions directly (without transport)."""
 
     def test_mcp_assess_tool(self, tmp_path: Path):
-        """verdict_assess tool returns formatted markdown."""
+        """seraph_assess tool returns formatted markdown."""
         try:
             import mcp  # noqa: F401
         except ImportError:
@@ -191,19 +191,19 @@ class TestMCPServerIntegration:
 
         repo = _make_git_repo(tmp_path)
 
-        with patch("verdict.mcp.server._get_repo_path", return_value=repo):
-            from verdict.mcp.server import create_server
+        with patch("seraph.mcp.server._get_repo_path", return_value=repo):
+            from seraph.mcp.server import create_server
             server = create_server()
 
             # Access the tool function directly
             tools = {t.name: t for t in server._tool_manager.list_tools()}
-            assert "verdict_assess" in tools
-            assert "verdict_mutate" in tools
-            assert "verdict_history" in tools
-            assert "verdict_feedback" in tools
+            assert "seraph_assess" in tools
+            assert "seraph_mutate" in tools
+            assert "seraph_history" in tools
+            assert "seraph_feedback" in tools
 
     def test_mcp_history_empty(self, tmp_path: Path):
-        """verdict_history returns empty message for new repo."""
+        """seraph_history returns empty message for new repo."""
         repo = tmp_path / "empty_repo"
         repo.mkdir()
         _git(repo, "init", "-q")
@@ -214,13 +214,13 @@ class TestMCPServerIntegration:
         _git(repo, "commit", "-q", "-m", "init")
 
         # Pre-create store so it exists
-        with VerdictStore(repo / ".verdict" / "verdict.db"):
+        with SeraphStore(repo / ".seraph" / "seraph.db"):
             pass
 
-        with patch("verdict.mcp.server._get_repo_path", return_value=repo):
-            from verdict.mcp.server import _get_store
+        with patch("seraph.mcp.server._get_repo_path", return_value=repo):
+            from seraph.mcp.server import _get_store
             with _get_store(repo) as store:
-                from verdict.mcp.formatters import format_history
+                from seraph.mcp.formatters import format_history
                 result = format_history(store.get_assessments())
                 assert "No assessments" in result
 
@@ -233,11 +233,11 @@ class TestPerformance:
     def test_assess_under_timeout(self, tmp_path: Path):
         """Assessment (skip baseline + mutations) completes in < 10s."""
         repo = _make_git_repo(tmp_path)
-        db_path = repo / ".verdict" / "verdict.db"
+        db_path = repo / ".seraph" / "seraph.db"
 
         start = time.monotonic()
-        with VerdictStore(db_path) as store:
-            engine = VerdictEngine(store, skip_baseline=True, skip_mutations=True)
+        with SeraphStore(db_path) as store:
+            engine = SeraphEngine(store, skip_baseline=True, skip_mutations=True)
             report = engine.assess(repo, ref_before="HEAD~1")
         elapsed = time.monotonic() - start
 
@@ -249,7 +249,7 @@ class TestPerformance:
         db_path = tmp_path / "perf.db"
 
         start = time.monotonic()
-        with VerdictStore(db_path) as store:
+        with SeraphStore(db_path) as store:
             for i in range(100):
                 report = AssessmentReport(
                     repo_path="/tmp/test",
@@ -280,7 +280,7 @@ class TestSentinelBridgeIntegration:
         if not sentinel_db.exists():
             pytest.skip("No Sentinel data available")
 
-        from verdict.core.bridge import SentinelBridge
+        from seraph.core.bridge import SentinelBridge
 
         with SentinelBridge(sentinel_repo) as bridge:
             assert bridge.available is True
@@ -297,7 +297,7 @@ class TestSentinelBridgeIntegration:
             assert isinstance(signals.missing_co_changes, list)
 
             # Scores should be valid (scoring now lives in reporter)
-            from verdict.core.reporter import compute_risk_score, compute_co_change_score
+            from seraph.core.reporter import compute_risk_score, compute_co_change_score
             risk_score = compute_risk_score(signals)
             assert 0 <= risk_score <= 100
 

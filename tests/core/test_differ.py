@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from verdict.core.differ import DiffResult, FileChange, parse_diff, parse_diff_text
+from seraph.core.differ import DiffResult, FileChange, parse_diff, parse_diff_text
 
 
 class TestParseDiffText:
@@ -91,7 +91,7 @@ class TestParseDiffGit:
         paths = result.file_paths
         assert "hello.py" in paths
 
-    @patch("verdict.core.differ.subprocess.run")
+    @patch("seraph.core.differ.subprocess.run")
     def test_parse_diff_timeout_returns_empty(self, mock_run, tmp_path):
         """TimeoutExpired returns an empty DiffResult."""
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="git diff", timeout=30)

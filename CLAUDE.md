@@ -1,16 +1,16 @@
-# Verdict — Verification Intelligence for AI-Generated Code
+# Seraph — Code Quality Gate for AI-Generated Code
 
 ## What This Is
 
-Verdict is an MCP server + CLI that assesses AI-generated code changes through a 7-step pipeline: diff parsing, flakiness baseline, mutation testing (mutmut), static analysis (ruff + mypy), Sentinel risk signals, multi-metric scoring, and SQLite persistence.
+Seraph is an MCP server + CLI that assesses AI-generated code changes through a 7-step pipeline: diff parsing, flakiness baseline, mutation testing (mutmut), static analysis (ruff + mypy), Sentinel risk signals, multi-metric scoring, and SQLite persistence.
 
 ## Architecture
 
-- **Entry points**: `verdict` (Typer CLI), `verdict-mcp` (FastMCP stdio server)
-- **Core pipeline**: `src/verdict/core/engine.py` — `VerdictEngine.assess()` orchestrates all 7 steps
-- **Configuration**: `src/verdict/config.py` — `VerdictConfig` frozen dataclass loaded from `.verdict/config.toml` → env vars → defaults
-- **Storage**: SQLite with WAL mode at `.verdict/verdict.db` (schema v2 with indices)
-- **Logging**: `src/verdict/logging_setup.py` — all output on stderr (MCP-safe), `--verbose` for DEBUG
+- **Entry points**: `seraph` (Typer CLI), `seraph-mcp` (FastMCP stdio server)
+- **Core pipeline**: `src/seraph/core/engine.py` — `SeraphEngine.assess()` orchestrates all 7 steps
+- **Configuration**: `src/seraph/config.py` — `SeraphConfig` frozen dataclass loaded from `.seraph/config.toml` → env vars → defaults
+- **Storage**: SQLite with WAL mode at `.seraph/seraph.db` (schema v2 with indices)
+- **Logging**: `src/seraph/logging_setup.py` — all output on stderr (MCP-safe), `--verbose` for DEBUG
 - **Sentinel integration**: `bridge.py` imports `sentinel.core.knowledge.KnowledgeStore` directly (Python dep, not MCP-to-MCP)
 
 ## Scoring Model
@@ -27,7 +27,7 @@ Verdict is an MCP server + CLI that assesses AI-generated code changes through a
 
 Thresholds: A ≥ 90, B ≥ 75, C ≥ 60, D ≥ 40, F < 40
 
-All weights, thresholds, and deduction constants are configurable via `ScoringConfig` in `.verdict/config.toml` or env vars (e.g. `VERDICT_SCORING_MUTATION_WEIGHT=0.40`).
+All weights, thresholds, and deduction constants are configurable via `ScoringConfig` in `.seraph/config.toml` or env vars (e.g. `SERAPH_SCORING_MUTATION_WEIGHT=0.40`).
 
 ## Key Patterns
 
@@ -36,7 +36,7 @@ All weights, thresholds, and deduction constants are configurable via `ScoringCo
 - **Step isolation**: Each pipeline step (baseline, mutate, static, sentinel) is wrapped in try/except — a single step crash doesn't kill the pipeline
 - **Tools return `str`**: MCP tools return formatted markdown, capped at ~4K tokens (configurable via `pipeline.max_output_chars`)
 - **Dataclasses over Pydantic**: Models use stdlib `dataclasses` to keep deps minimal
-- **Config priority**: env vars > `.verdict/config.toml` > dataclass defaults
+- **Config priority**: env vars > `.seraph/config.toml` > dataclass defaults
 
 ## Testing
 
@@ -49,22 +49,22 @@ All core modules have dedicated test files in `tests/core/`. Mocks used for subp
 ## Commands
 
 ```bash
-verdict assess [repo_path] --ref-before SHA --ref-after SHA --skip-baseline --skip-mutations --json --verbose
-verdict history [repo_path] --limit N --offset N
-verdict feedback <assessment-id> <accepted|rejected|modified> --context "..."
-verdict prune [repo_path] --days N --yes
+seraph assess [repo_path] --ref-before SHA --ref-after SHA --skip-baseline --skip-mutations --json --verbose
+seraph history [repo_path] --limit N --offset N
+seraph feedback <assessment-id> <accepted|rejected|modified> --context "..."
+seraph prune [repo_path] --days N --yes
 ```
 
 ## MCP Tools
 
-- `verdict_assess` — Full 7-step pipeline
-- `verdict_mutate` — Mutation testing only
-- `verdict_history` — Past assessments with pagination
-- `verdict_feedback` — Submit feedback on an assessment
+- `seraph_assess` — Full 7-step pipeline
+- `seraph_mutate` — Mutation testing only
+- `seraph_history` — Past assessments with pagination
+- `seraph_feedback` — Submit feedback on an assessment
 
 ## Configuration
 
-Place `.verdict/config.toml` in the repo root to override defaults:
+Place `.seraph/config.toml` in the repo root to override defaults:
 
 ```toml
 [timeouts]
@@ -84,7 +84,7 @@ retention_days = 30
 level = "DEBUG"
 ```
 
-Env vars override TOML: `VERDICT_TIMEOUT_MUTATION_PER_FILE=300`, `VERDICT_SCORING_MUTATION_WEIGHT=0.40`, etc.
+Env vars override TOML: `SERAPH_TIMEOUT_MUTATION_PER_FILE=300`, `SERAPH_SCORING_MUTATION_WEIGHT=0.40`, etc.
 
 ## Dependencies
 
@@ -96,4 +96,4 @@ Env vars override TOML: `VERDICT_TIMEOUT_MUTATION_PER_FILE=300`, `VERDICT_SCORIN
 
 - Schema version: 2 (auto-migrates from v1)
 - Indices on `assessments(repo_path, created_at)`, `mutation_cache(assessment_id)`, `baselines(repo_path)`, `feedback(assessment_id)`
-- `verdict prune --days N` deletes old data in dependency order with VACUUM
+- `seraph prune --days N` deletes old data in dependency order with VACUUM

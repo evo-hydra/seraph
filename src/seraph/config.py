@@ -1,6 +1,6 @@
-"""Centralized configuration for Verdict.
+"""Centralized configuration for Seraph.
 
-Loads from .verdict/config.toml -> env vars -> defaults.
+Loads from .seraph/config.toml -> env vars -> defaults.
 """
 
 from __future__ import annotations
@@ -89,8 +89,8 @@ class PipelineConfig:
 
     baseline_runs: int = 3
     max_output_chars: int = 16_000
-    db_dir: str = ".verdict"
-    db_name: str = "verdict.db"
+    db_dir: str = ".seraph"
+    db_name: str = "seraph.db"
 
 
 @dataclass(frozen=True)
@@ -111,8 +111,8 @@ class LogConfig:
 
 
 @dataclass(frozen=True)
-class VerdictConfig:
-    """Top-level Verdict configuration."""
+class SeraphConfig:
+    """Top-level Seraph configuration."""
 
     timeouts: TimeoutConfig = TimeoutConfig()
     scoring: ScoringConfig = ScoringConfig()
@@ -121,13 +121,13 @@ class VerdictConfig:
     logging: LogConfig = LogConfig()
 
     @classmethod
-    def load(cls, repo_path: str | Path) -> VerdictConfig:
-        """Load config from .verdict/config.toml, env vars, and defaults.
+    def load(cls, repo_path: str | Path) -> SeraphConfig:
+        """Load config from .seraph/config.toml, env vars, and defaults.
 
         Priority: env vars > TOML file > defaults.
         """
         repo = Path(repo_path).resolve()
-        config_file = repo / ".verdict" / "config.toml"
+        config_file = repo / ".seraph" / "config.toml"
 
         toml_data: dict = {}
         if config_file.exists():
@@ -135,11 +135,11 @@ class VerdictConfig:
                 toml_data = tomllib.load(f)
 
         return cls(
-            timeouts=_build_section(TimeoutConfig, toml_data.get("timeouts", {}), "VERDICT_TIMEOUT"),
-            scoring=_build_section(ScoringConfig, toml_data.get("scoring", {}), "VERDICT_SCORING"),
-            pipeline=_build_section(PipelineConfig, toml_data.get("pipeline", {}), "VERDICT_PIPELINE"),
-            retention=_build_section(RetentionConfig, toml_data.get("retention", {}), "VERDICT_RETENTION"),
-            logging=_build_section(LogConfig, toml_data.get("logging", {}), "VERDICT_LOG"),
+            timeouts=_build_section(TimeoutConfig, toml_data.get("timeouts", {}), "SERAPH_TIMEOUT"),
+            scoring=_build_section(ScoringConfig, toml_data.get("scoring", {}), "SERAPH_SCORING"),
+            pipeline=_build_section(PipelineConfig, toml_data.get("pipeline", {}), "SERAPH_PIPELINE"),
+            retention=_build_section(RetentionConfig, toml_data.get("retention", {}), "SERAPH_RETENTION"),
+            logging=_build_section(LogConfig, toml_data.get("logging", {}), "SERAPH_LOG"),
         )
 
 

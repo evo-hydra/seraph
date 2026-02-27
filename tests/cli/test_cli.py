@@ -8,18 +8,18 @@ from unittest.mock import patch, MagicMock
 import pytest
 from typer.testing import CliRunner
 
-from verdict.cli.app import app
-from verdict.core.store import VerdictStore
-from verdict.models.assessment import AssessmentReport
-from verdict.models.enums import Grade
+from seraph.cli.app import app
+from seraph.core.store import SeraphStore
+from seraph.models.assessment import AssessmentReport
+from seraph.models.enums import Grade
 
 runner = CliRunner()
 
 
 @pytest.fixture
 def cli_store(tmp_path: Path):
-    """Create a VerdictStore for CLI tests, returning (tmp_path, store_path)."""
-    with VerdictStore(tmp_path / ".verdict" / "verdict.db") as store:
+    """Create a SeraphStore for CLI tests, returning (tmp_path, store_path)."""
+    with SeraphStore(tmp_path / ".seraph" / "seraph.db") as store:
         yield tmp_path, store
 
 
@@ -81,7 +81,7 @@ class TestCLI:
         result = runner.invoke(app, ["feedback", "nonexistent", "accepted", "--repo", str(tmp_path)])
         assert result.exit_code == 1
 
-    @patch("verdict.cli.app.VerdictEngine")
+    @patch("seraph.cli.app.SeraphEngine")
     def test_assess_command(self, mock_engine_cls, cli_store):
         """assess command invokes engine and displays report."""
         tmp_path, _store = cli_store
@@ -102,9 +102,9 @@ class TestCLI:
             "--skip-baseline", "--skip-mutations",
         ])
         assert result.exit_code == 0
-        assert "Verdict Assessment" in result.stdout
+        assert "Seraph Assessment" in result.stdout
 
-    @patch("verdict.cli.app.VerdictEngine")
+    @patch("seraph.cli.app.SeraphEngine")
     def test_assess_json_output(self, mock_engine_cls, cli_store):
         """assess --json outputs valid JSON."""
         tmp_path, _store = cli_store
@@ -127,7 +127,7 @@ class TestCLI:
         assert result.exit_code == 0
         assert "overall_grade" in result.stdout
 
-    @patch("verdict.cli.app.VerdictEngine")
+    @patch("seraph.cli.app.SeraphEngine")
     def test_assess_engine_error_shows_message(self, mock_engine_cls, cli_store):
         """Engine exceptions produce user-friendly error, not traceback."""
         tmp_path, _store = cli_store
@@ -144,7 +144,7 @@ class TestCLI:
         assert "Assessment failed" in result.stdout
         assert "git not found" in result.stdout
 
-    @patch("verdict.cli.app.VerdictEngine")
+    @patch("seraph.cli.app.SeraphEngine")
     def test_assess_engine_error_suggests_verbose(self, mock_engine_cls, cli_store):
         """Error message suggests --verbose when not in verbose mode."""
         tmp_path, _store = cli_store

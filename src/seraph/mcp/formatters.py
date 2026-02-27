@@ -10,7 +10,7 @@ def format_assessment(report_dict: dict, *, max_chars: int = MAX_OUTPUT_CHARS) -
     """Format an assessment report for LLM consumption."""
     lines: list[str] = []
 
-    lines.append(f"## Verdict Assessment: {report_dict.get('overall_grade', '?')}")
+    lines.append(f"## Seraph Assessment: {report_dict.get('overall_grade', '?')}")
     lines.append(f"Score: {report_dict.get('overall_score', 0)}/100")
     lines.append(f"Files: {len(report_dict.get('files_changed', []))}")
     lines.append("")

@@ -1,6 +1,6 @@
-"""Logging configuration for Verdict.
+"""Logging configuration for Seraph.
 
-All verdict.* loggers inherit from the root "verdict" logger.
+All seraph.* loggers inherit from the root "seraph" logger.
 Console output goes to stderr (critical for MCP stdio transport).
 """
 
@@ -9,17 +9,17 @@ from __future__ import annotations
 import logging
 import sys
 
-from verdict.config import LogConfig
+from seraph.config import LogConfig
 
 
 def setup_logging(log_config: LogConfig, *, verbose: bool = False) -> None:
-    """Configure the verdict logger hierarchy.
+    """Configure the seraph logger hierarchy.
 
     Args:
-        log_config: Logging settings from VerdictConfig.
+        log_config: Logging settings from SeraphConfig.
         verbose: If True, overrides level to DEBUG.
     """
-    root_logger = logging.getLogger("verdict")
+    root_logger = logging.getLogger("seraph")
 
     # Avoid adding duplicate handlers on repeated calls
     if root_logger.handlers:

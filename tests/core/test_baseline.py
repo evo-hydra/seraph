@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from verdict.core.baseline import _parse_test_failures, run_baseline
+from seraph.core.baseline import _parse_test_failures, run_baseline
 
 
 class TestParseTestFailures:
@@ -32,7 +32,7 @@ tests/test_b.py::test_three FAILED
 
 
 class TestRunBaseline:
-    @patch("verdict.core.baseline._run_tests_once")
+    @patch("seraph.core.baseline._run_tests_once")
     def test_all_stable(self, mock_run):
         mock_run.return_value = set()
         result = run_baseline(Path("/tmp/test"), run_count=3)
@@ -40,7 +40,7 @@ class TestRunBaseline:
         assert result.pass_rate == 1.0
         assert result.run_count == 3
 
-    @patch("verdict.core.baseline._run_tests_once")
+    @patch("seraph.core.baseline._run_tests_once")
     def test_flaky_detection(self, mock_run):
         # test_b fails in run 1 and 3 but not 2 → flaky
         mock_run.side_effect = [
@@ -54,7 +54,7 @@ class TestRunBaseline:
         assert "test_b" in result.flaky_tests
         assert "test_a" not in result.flaky_tests
 
-    @patch("verdict.core.baseline._run_tests_once")
+    @patch("seraph.core.baseline._run_tests_once")
     def test_consistent_failures_not_flaky(self, mock_run):
         mock_run.return_value = {"test_always_fails"}
         result = run_baseline(Path("/tmp/test"), run_count=3)

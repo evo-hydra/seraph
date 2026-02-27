@@ -3,10 +3,26 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "verdict"
+name = "seraph-ai"
 version = "0.1.0"
-description = "Verification intelligence for AI-generated code"
+description = "Code quality gate — mutation testing, static analysis, and risk scoring for AI-generated code"
+readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.10"
+authors = [{name = "evo-hydra"}]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+keywords = ["code-quality", "mutation-testing", "static-analysis", "mcp", "ai"]
 dependencies = [
     "typer>=0.9",
     "rich>=13.0",
@@ -18,14 +34,19 @@ mcp = ["mcp>=1.0,<2.0"]
 sentinel = ["git-sentinel>=0.4.0"]
 mutation = ["mutmut>=2.4.0"]
 dev = ["pytest>=7.0", "pytest-cov", "ruff", "mypy"]
-all = ["verdict[mcp,sentinel,mutation]"]
+all = ["seraph-ai[mcp,sentinel,mutation]"]
 
 [project.scripts]
-verdict = "verdict.cli.app:app"
-verdict-mcp = "verdict.mcp.server:main"
+seraph = "seraph.cli.app:app"
+seraph-mcp = "seraph.mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/evo-hydra/verdict"
+Repository = "https://github.com/evo-hydra/verdict"
+Issues = "https://github.com/evo-hydra/verdict/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/verdict"]
+packages = ["src/seraph"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

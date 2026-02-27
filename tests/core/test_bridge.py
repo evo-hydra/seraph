@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from verdict.core.bridge import SentinelBridge
-from verdict.models.assessment import SentinelSignals
+from seraph.core.bridge import SentinelBridge
+from seraph.models.assessment import SentinelSignals
 
 
 class TestSentinelBridgeUnavailable:

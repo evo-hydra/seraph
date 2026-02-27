@@ -1,5 +1,5 @@
-from verdict.models.enums import Grade, Severity, AnalyzerType, FeedbackOutcome, MutantStatus
-from verdict.models.assessment import (
+from seraph.models.enums import Grade, Severity, AnalyzerType, FeedbackOutcome, MutantStatus
+from seraph.models.assessment import (
     AssessmentReport,
     BaselineResult,
     DimensionScore,

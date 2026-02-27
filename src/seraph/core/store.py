@@ -1,4 +1,4 @@
-"""SQLite storage for Verdict assessments and results."""
+"""SQLite storage for Seraph assessments and results."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
-from verdict.models.assessment import (
+from seraph.models.assessment import (
     AssessmentReport,
     BaselineResult,
     Feedback,
@@ -18,14 +18,14 @@ from verdict.models.assessment import (
     StoredFeedback,
     StoredMutation,
 )
-from verdict.models.enums import FeedbackOutcome, Grade, MutantStatus
+from seraph.models.enums import FeedbackOutcome, Grade, MutantStatus
 
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 2
 
 _SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS verdict_meta (
+CREATE TABLE IF NOT EXISTS seraph_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
@@ -104,8 +104,8 @@ _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
 _STATS_TABLES = frozenset({"assessments", "baselines", "mutation_cache", "feedback"})
 
 
-class VerdictStore:
-    """SQLite-backed storage for Verdict data."""
+class SeraphStore:
+    """SQLite-backed storage for Seraph data."""
 
     def __init__(self, db_path: str | Path):
         self._db_path = Path(db_path)
@@ -124,7 +124,7 @@ class VerdictStore:
             self._conn.close()
             self._conn = None
 
-    def __enter__(self) -> VerdictStore:
+    def __enter__(self) -> SeraphStore:
         self.open()
         return self
 
@@ -140,12 +140,12 @@ class VerdictStore:
     def _init_schema(self) -> None:
         self.conn.executescript(_SCHEMA_SQL)
         cur = self.conn.execute(
-            "SELECT value FROM verdict_meta WHERE key = 'schema_version'"
+            "SELECT value FROM seraph_meta WHERE key = 'schema_version'"
         )
         row = cur.fetchone()
         if row is None:
             self.conn.execute(
-                "INSERT INTO verdict_meta (key, value) VALUES ('schema_version', ?)",
+                "INSERT INTO seraph_meta (key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
             )
             self.conn.commit()
@@ -165,7 +165,7 @@ class VerdictStore:
                 migration(self.conn)
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO verdict_meta (key, value) VALUES ('schema_version', ?)",
+            "INSERT OR REPLACE INTO seraph_meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),),
         )
         self.conn.commit()

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 
-from verdict.config import ScoringConfig
-from verdict.models.assessment import (
+from seraph.config import ScoringConfig
+from seraph.models.assessment import (
     AssessmentReport,
     BaselineResult,
     DimensionScore,
@@ -20,7 +20,7 @@ from verdict.models.assessment import (
     SentinelSignals,
     StaticFinding,
 )
-from verdict.models.enums import Grade, MutantStatus, Severity
+from seraph.models.enums import Grade, MutantStatus, Severity
 
 logger = logging.getLogger(__name__)
 
