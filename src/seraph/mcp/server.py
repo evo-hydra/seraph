@@ -38,7 +38,7 @@ def create_server():
 
     mcp = FastMCP(
         "seraph",
-        description="Verification intelligence for AI-generated code",
+        instructions="Verification intelligence for AI-generated code",
     )
 
     @mcp.tool()
