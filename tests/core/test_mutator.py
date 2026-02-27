@@ -8,6 +8,7 @@ import pytest
 
 from seraph.core.mutator import (
     run_mutations,
+    MutationRunResult,
     _map_mutmut_status,
 )
 from seraph.models.assessment import MutationResult
@@ -40,16 +41,39 @@ class TestRunMutations:
     @patch("seraph.core.mutator._mutate_single_file")
     def test_skips_non_python(self, mock_mutate, tmp_path):
         (tmp_path / "readme.md").touch()
-        results = run_mutations(tmp_path, ["readme.md"])
+        result = run_mutations(tmp_path, ["readme.md"])
         mock_mutate.assert_not_called()
-        assert results == []
+        assert isinstance(result, MutationRunResult)
+        assert result.results == []
+        assert result.tool_available is False
 
     @patch("seraph.core.mutator._mutate_single_file")
     def test_runs_on_python_files(self, mock_mutate, tmp_path):
         (tmp_path / "foo.py").write_text("x = 1")
-        mock_mutate.return_value = [
-            MutationResult(file_path="foo.py", status=MutantStatus.KILLED)
-        ]
-        results = run_mutations(tmp_path, ["foo.py"])
-        assert len(results) == 1
-        assert results[0].status == MutantStatus.KILLED
+        mock_mutate.return_value = (
+            [MutationResult(file_path="foo.py", status=MutantStatus.KILLED)],
+            True,
+        )
+        result = run_mutations(tmp_path, ["foo.py"])
+        assert isinstance(result, MutationRunResult)
+        assert len(result.results) == 1
+        assert result.results[0].status == MutantStatus.KILLED
+        assert result.tool_available is True
+
+    @patch("seraph.core.mutator._mutate_single_file")
+    def test_tool_not_available(self, mock_mutate, tmp_path):
+        """FileNotFoundError → tool_available=False."""
+        (tmp_path / "foo.py").write_text("x = 1")
+        mock_mutate.return_value = ([], False)
+        result = run_mutations(tmp_path, ["foo.py"])
+        assert result.tool_available is False
+        assert result.results == []
+
+    @patch("seraph.core.mutator._mutate_single_file")
+    def test_tool_available_no_mutations(self, mock_mutate, tmp_path):
+        """Empty results + tool_available=True (no mutable code)."""
+        (tmp_path / "foo.py").write_text("x = 1")
+        mock_mutate.return_value = ([], True)
+        result = run_mutations(tmp_path, ["foo.py"])
+        assert result.tool_available is True
+        assert result.results == []

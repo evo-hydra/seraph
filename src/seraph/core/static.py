@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from seraph.models.assessment import StaticFinding
@@ -13,22 +14,64 @@ from seraph.models.enums import AnalyzerType, Severity
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class StaticRunResult:
+    """Wrapper for static analysis output with tool configuration info."""
+
+    findings: list[StaticFinding]
+    tool_config: dict[str, bool]  # {"ruff": True/False, "mypy": True/False}
+
+
+def detect_tool_config(repo_path: Path) -> dict[str, bool]:
+    """Detect whether ruff and mypy are configured for this project.
+
+    Checks for config files and pyproject.toml sections. Does not parse
+    TOML — just checks for section header strings.
+    """
+    mypy_configured = False
+    ruff_configured = False
+
+    # mypy: mypy.ini, .mypy.ini, setup.cfg [mypy], pyproject.toml [tool.mypy]
+    if (repo_path / "mypy.ini").exists() or (repo_path / ".mypy.ini").exists():
+        mypy_configured = True
+    else:
+        setup_cfg = repo_path / "setup.cfg"
+        if setup_cfg.exists() and "[mypy]" in setup_cfg.read_text(errors="ignore"):
+            mypy_configured = True
+
+    # ruff: ruff.toml, .ruff.toml, pyproject.toml [tool.ruff]
+    if (repo_path / "ruff.toml").exists() or (repo_path / ".ruff.toml").exists():
+        ruff_configured = True
+
+    # Check pyproject.toml for both
+    pyproject = repo_path / "pyproject.toml"
+    if pyproject.exists():
+        content = pyproject.read_text(errors="ignore")
+        if not mypy_configured and "[tool.mypy]" in content:
+            mypy_configured = True
+        if not ruff_configured and "[tool.ruff]" in content:
+            ruff_configured = True
+
+    return {"ruff": ruff_configured, "mypy": mypy_configured}
+
+
 def run_static_analysis(
     repo_path: Path,
     files: list[str],
     timeout: int = 60,
-) -> list[StaticFinding]:
+) -> StaticRunResult:
     """Run ruff and mypy on the specified files, return aggregated findings."""
+    tool_config = detect_tool_config(repo_path)
     findings: list[StaticFinding] = []
 
     abs_files = [str(repo_path / f) for f in files if f.endswith(".py")]
     if not abs_files:
-        return findings
+        return StaticRunResult(findings=findings, tool_config=tool_config)
 
     findings.extend(_run_ruff(repo_path, abs_files, timeout))
     findings.extend(_run_mypy(repo_path, abs_files, timeout))
 
-    return findings
+    return StaticRunResult(findings=findings, tool_config=tool_config)
 
 
 def _run_ruff(repo_path: Path, abs_files: list[str], timeout: int) -> list[StaticFinding]:

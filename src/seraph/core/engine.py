@@ -99,21 +99,32 @@ class SeraphEngine:
         # Step 3: Mutate
         mutations: list = []
         mutation_score = 100.0
+        mutation_tool_available = False
         if not self._skip_mutations and py_files:
             try:
-                mutations = run_mutations(repo, py_files, self._mutation_timeout)
-                mutation_score = compute_mutation_score(mutations)
-                evaluated.add("mutation")
+                mutation_run = run_mutations(repo, py_files, self._mutation_timeout)
+                mutations = mutation_run.results
+                mutation_tool_available = mutation_run.tool_available
+                if mutations:  # Only mark evaluated if we got actual results
+                    mutation_score = compute_mutation_score(mutations)
+                    evaluated.add("mutation")
+                # No results + tool available = N/A (no mutable code), weight redistributed
+                # No results + tool unavailable = N/A, weight redistributed
             except Exception:
                 logger.exception("Step 3 (Mutation) failed")
 
         # Step 4: Static analysis (only if Python files changed)
         static_findings: list = []
         static_score = 100.0
+        tool_config: dict = {}
         if py_files:
             try:
-                static_findings = run_static_analysis(repo, py_files, self._static_timeout)
-                static_score = compute_static_score(static_findings, len(py_files), scoring)
+                static_run = run_static_analysis(repo, py_files, self._static_timeout)
+                static_findings = static_run.findings
+                tool_config = static_run.tool_config
+                # Only score findings from configured tools
+                scoreable = [f for f in static_findings if tool_config.get(f.analyzer.value, True)]
+                static_score = compute_static_score(scoreable, len(py_files), scoring)
             except Exception:
                 logger.exception("Step 4 (Static Analysis) failed")
 
@@ -145,6 +156,8 @@ class SeraphEngine:
             sentinel_signals=sentinel_signals,
             evaluated_dimensions=evaluated,
             scoring=scoring,
+            mutation_tool_available=mutation_tool_available,
+            tool_config=tool_config,
         )
 
         # Step 7: Persist
@@ -167,8 +180,17 @@ class SeraphEngine:
         diff = parse_diff(repo, ref_before, ref_after)
         py_files = diff.python_files
 
-        mutations = run_mutations(repo, py_files, self._mutation_timeout) if py_files else []
-        mutation_score = compute_mutation_score(mutations)
+        mutations: list = []
+        mutation_score = 100.0
+        mutation_tool_available = False
+        evaluated: set[str] = set()
+        if py_files:
+            mutation_run = run_mutations(repo, py_files, self._mutation_timeout)
+            mutations = mutation_run.results
+            mutation_tool_available = mutation_run.tool_available
+            if mutations:
+                mutation_score = compute_mutation_score(mutations)
+                evaluated.add("mutation")
 
         report = build_report(
             repo_path=str(repo),
@@ -184,8 +206,9 @@ class SeraphEngine:
             static_findings=[],
             baseline=None,
             sentinel_signals=SentinelSignals(),
-            evaluated_dimensions={"mutation"},
+            evaluated_dimensions=evaluated,
             scoring=self._config.scoring,
+            mutation_tool_available=mutation_tool_available,
         )
 
         self._store.save_assessment(report)
@@ -210,4 +233,5 @@ class SeraphEngine:
             baseline=None,
             sentinel_signals=SentinelSignals(),
             scoring=self._config.scoring,
+            mutation_tool_available=False,
         )

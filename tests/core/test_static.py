@@ -8,8 +8,10 @@ from unittest.mock import patch
 import pytest
 
 from seraph.core.static import (
+    StaticRunResult,
     _parse_mypy_line,
     _ruff_severity,
+    detect_tool_config,
     run_static_analysis,
 )
 from seraph.models.assessment import StaticFinding
@@ -65,5 +67,67 @@ class TestParseMypyLine:
 
     def test_invalid_line(self):
         assert _parse_mypy_line("not a valid line", Path("/tmp")) is None
+
+
+class TestDetectToolConfig:
+    def test_no_config_files(self, tmp_path):
+        result = detect_tool_config(tmp_path)
+        assert result == {"ruff": False, "mypy": False}
+
+    def test_mypy_ini(self, tmp_path):
+        (tmp_path / "mypy.ini").write_text("[mypy]\n")
+        result = detect_tool_config(tmp_path)
+        assert result["mypy"] is True
+
+    def test_dot_mypy_ini(self, tmp_path):
+        (tmp_path / ".mypy.ini").write_text("[mypy]\n")
+        result = detect_tool_config(tmp_path)
+        assert result["mypy"] is True
+
+    def test_pyproject_tool_mypy(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text("[tool.mypy]\nstrict = true\n")
+        result = detect_tool_config(tmp_path)
+        assert result["mypy"] is True
+
+    def test_ruff_toml(self, tmp_path):
+        (tmp_path / "ruff.toml").write_text("line-length = 88\n")
+        result = detect_tool_config(tmp_path)
+        assert result["ruff"] is True
+
+    def test_dot_ruff_toml(self, tmp_path):
+        (tmp_path / ".ruff.toml").write_text("line-length = 88\n")
+        result = detect_tool_config(tmp_path)
+        assert result["ruff"] is True
+
+    def test_pyproject_tool_ruff(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text("[tool.ruff]\nline-length = 88\n")
+        result = detect_tool_config(tmp_path)
+        assert result["ruff"] is True
+
+    def test_setup_cfg_mypy(self, tmp_path):
+        (tmp_path / "setup.cfg").write_text("[mypy]\nignore_missing_imports = True\n")
+        result = detect_tool_config(tmp_path)
+        assert result["mypy"] is True
+
+    def test_pyproject_both_tools(self, tmp_path):
+        (tmp_path / "pyproject.toml").write_text(
+            "[tool.mypy]\nstrict = true\n\n[tool.ruff]\nline-length = 88\n"
+        )
+        result = detect_tool_config(tmp_path)
+        assert result["mypy"] is True
+        assert result["ruff"] is True
+
+
+class TestRunStaticAnalysis:
+    @patch("seraph.core.static._run_ruff")
+    @patch("seraph.core.static._run_mypy")
+    def test_returns_static_run_result(self, mock_mypy, mock_ruff, tmp_path):
+        mock_ruff.return_value = []
+        mock_mypy.return_value = []
+        result = run_static_analysis(tmp_path, ["foo.py"])
+        assert isinstance(result, StaticRunResult)
+        assert result.findings == []
+        assert "ruff" in result.tool_config
+        assert "mypy" in result.tool_config
 
 

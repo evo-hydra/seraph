@@ -41,7 +41,7 @@ RISK_DEDUCTION_PER_PITFALL = 5.0
 RISK_DEDUCTION_PER_MISSING_CO_CHANGE = 3.0
 RISK_HOT_FILE_CHURN_DIVISOR = 5.0
 RISK_HOT_FILE_MAX_DEDUCTION = 10.0
-STATIC_ISSUE_SCALE_FACTOR = 10.0
+STATIC_ISSUE_THRESHOLD = 10.0
 
 SEVERITY_WEIGHTS = {
     Severity.CRITICAL: 10,
@@ -80,7 +80,8 @@ def compute_static_score(
 ) -> float:
     """Compute static cleanliness score (0-100).
 
-    Score decreases based on issues per file, weighted by severity.
+    Uses an asymptotic curve: 100 / (1 + issues_per_file / threshold).
+    This never hits 0% — even projects with many issues get a nonzero signal.
     """
     if file_count == 0:
         return 100.0
@@ -89,8 +90,8 @@ def compute_static_score(
     weighted_issues = sum(sev_weights.get(f.severity, 1) for f in findings)
     issues_per_file = weighted_issues / file_count
 
-    scale = scoring.static_issue_scale_factor if scoring else STATIC_ISSUE_SCALE_FACTOR
-    score = max(0.0, 100.0 - (issues_per_file * scale))
+    threshold = scoring.static_issue_threshold if scoring else STATIC_ISSUE_THRESHOLD
+    score = 100.0 / (1.0 + issues_per_file / threshold)
     return round(score, 1)
 
 
@@ -169,6 +170,8 @@ def build_report(
     sentinel_signals: SentinelSignals,
     evaluated_dimensions: set[str] | None = None,
     scoring: ScoringConfig | None = None,
+    mutation_tool_available: bool = True,
+    tool_config: dict[str, bool] | None = None,
 ) -> AssessmentReport:
     """Build a complete assessment report from individual dimension scores.
 
@@ -185,9 +188,11 @@ def build_report(
 
     dimensions = [
         _score_dimension("Mutation Score", mutation_score, weights["mutation"],
-                         _mutation_details(mutations), "mutation" in evaluated, thresholds),
+                         _mutation_details(mutations, tool_available=mutation_tool_available),
+                         "mutation" in evaluated, thresholds),
         _score_dimension("Static Cleanliness", static_score, weights["static"],
-                         _static_details(static_findings), "static" in evaluated, thresholds),
+                         _static_details(static_findings, tool_config=tool_config),
+                         "static" in evaluated, thresholds),
         _score_dimension("Test Baseline", baseline_score, weights["baseline"],
                          _baseline_details(baseline), "baseline" in evaluated, thresholds),
         _score_dimension("Sentinel Risk", sentinel_risk_score, weights["sentinel_risk"],
@@ -219,7 +224,10 @@ def build_report(
         overall_score=round(overall_score, 1),
         overall_grade=overall_grade,
         mutation_score=mutation_score,
-        static_issues=len(static_findings),
+        static_issues=sum(
+            1 for f in static_findings
+            if tool_config is None or tool_config.get(f.analyzer.value, True)
+        ),
         sentinel_warnings=len(sentinel_signals.pitfall_matches) + len(sentinel_signals.hot_files),
         baseline_flaky=len(baseline.flaky_tests) if baseline else 0,
         gaps=gaps,
@@ -272,22 +280,35 @@ def _identify_gaps(dimensions: list[DimensionScore]) -> list[str]:
 
 # ── Detail Formatters ─────────────────────────────────────────
 
-def _mutation_details(mutations: list[MutationResult]) -> str:
+def _mutation_details(
+    mutations: list[MutationResult], *, tool_available: bool = True
+) -> str:
     if not mutations:
-        return "No mutations (skipped or no mutable code)"
+        if tool_available:
+            return "No mutable code in changed files"
+        return "mutmut not available"
     total = len(mutations)
     killed = sum(1 for m in mutations if m.status == MutantStatus.KILLED)
     survived = total - killed
     return f"{killed}/{total} killed, {survived} survived"
 
 
-def _static_details(findings: list[StaticFinding]) -> str:
+def _static_details(
+    findings: list[StaticFinding],
+    *,
+    tool_config: dict[str, bool] | None = None,
+) -> str:
     if not findings:
         return "No issues found"
     by_analyzer: dict[str, int] = {}
     for f in findings:
         by_analyzer[f.analyzer.value] = by_analyzer.get(f.analyzer.value, 0) + 1
-    parts = [f"{v} {k}" for k, v in sorted(by_analyzer.items())]
+    parts: list[str] = []
+    for k, v in sorted(by_analyzer.items()):
+        label = f"{v} {k}"
+        if tool_config is not None and not tool_config.get(k, True):
+            label += " (not configured)"
+        parts.append(label)
     return ", ".join(parts)
 
 

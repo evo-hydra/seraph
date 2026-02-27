@@ -49,7 +49,7 @@ class ScoringConfig:
     risk_deduction_per_missing_co_change: float = 3.0
     risk_hot_file_churn_divisor: float = 5.0
     risk_hot_file_max_deduction: float = 10.0
-    static_issue_scale_factor: float = 10.0
+    static_issue_threshold: float = 10.0  # issues_per_file at which score = 50%
 
     # Severity weights
     severity_critical: int = 10

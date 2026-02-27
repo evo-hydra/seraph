@@ -11,6 +11,8 @@ from seraph.core.reporter import (
     compute_mutation_score,
     compute_risk_score,
     compute_static_score,
+    _mutation_details,
+    _static_details,
     DIMENSION_WEIGHTS,
 )
 from seraph.models.assessment import (
@@ -22,7 +24,7 @@ from seraph.models.assessment import (
     SentinelSignals,
     StaticFinding,
 )
-from seraph.models.enums import Grade, MutantStatus, Severity
+from seraph.models.enums import AnalyzerType, Grade, MutantStatus, Severity
 
 
 class TestComputeBaselineScore:
@@ -59,8 +61,9 @@ class TestComputeStaticScore:
             StaticFinding(severity=Severity.HIGH),
             StaticFinding(severity=Severity.LOW),
         ]
-        # weighted: 5 + 1 = 6, per file = 6/2 = 3, score = 100 - 30 = 70
-        assert compute_static_score(findings, 2) == 70.0
+        # weighted: 5 + 1 = 6, per file = 6/2 = 3
+        # asymptotic: 100 / (1 + 3/10) = 100/1.3 = 76.9
+        assert compute_static_score(findings, 2) == 76.9
 
 
 class TestComputeRiskScore:
@@ -182,3 +185,41 @@ class TestBuildReport:
         evaluated = [d for d in report.dimensions if d.evaluated]
         assert len(evaluated) == 1
         assert evaluated[0].name == "Mutation Score"
+
+
+class TestMutationDetails:
+    def test_with_mutations(self):
+        mutations = [
+            MutationResult(status=MutantStatus.KILLED),
+            MutationResult(status=MutantStatus.SURVIVED),
+        ]
+        assert _mutation_details(mutations) == "1/2 killed, 1 survived"
+
+    def test_no_mutable_code(self):
+        assert _mutation_details([], tool_available=True) == "No mutable code in changed files"
+
+    def test_tool_unavailable(self):
+        assert _mutation_details([], tool_available=False) == "mutmut not available"
+
+
+class TestStaticDetails:
+    def test_no_findings(self):
+        assert _static_details([]) == "No issues found"
+
+    def test_with_findings(self):
+        findings = [
+            StaticFinding(analyzer=AnalyzerType.RUFF),
+            StaticFinding(analyzer=AnalyzerType.MYPY),
+            StaticFinding(analyzer=AnalyzerType.MYPY),
+        ]
+        assert _static_details(findings) == "2 mypy, 1 ruff"
+
+    def test_unconfigured_tool(self):
+        findings = [
+            StaticFinding(analyzer=AnalyzerType.RUFF),
+            StaticFinding(analyzer=AnalyzerType.MYPY),
+        ]
+        result = _static_details(findings, tool_config={"ruff": True, "mypy": False})
+        assert "mypy (not configured)" in result
+        assert "ruff" in result
+        assert "ruff (not configured)" not in result

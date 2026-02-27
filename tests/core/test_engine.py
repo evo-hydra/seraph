@@ -10,9 +10,11 @@ import pytest
 from seraph.config import SeraphConfig, TimeoutConfig, ScoringConfig
 from seraph.core.differ import DiffResult, FileChange
 from seraph.core.engine import SeraphEngine
+from seraph.core.mutator import MutationRunResult
+from seraph.core.static import StaticRunResult
 from seraph.core.store import SeraphStore
-from seraph.models.assessment import MutationResult, BaselineResult
-from seraph.models.enums import Grade, MutantStatus
+from seraph.models.assessment import MutationResult, BaselineResult, StaticFinding
+from seraph.models.enums import AnalyzerType, Grade, MutantStatus, Severity
 
 
 class TestSeraphEngine:
@@ -45,10 +47,11 @@ class TestSeraphEngine:
             flaky_tests=[],
             pass_rate=1.0,
         )
-        mock_mutate.return_value = [
-            MutationResult(file_path="src/foo.py", status=MutantStatus.KILLED),
-        ]
-        mock_static.return_value = []
+        mock_mutate.return_value = MutationRunResult(
+            results=[MutationResult(file_path="src/foo.py", status=MutantStatus.KILLED)],
+            tool_available=True,
+        )
+        mock_static.return_value = StaticRunResult(findings=[], tool_config={"ruff": False, "mypy": False})
 
         engine = SeraphEngine(store)
         report = engine.assess(tmp_repo)
@@ -115,10 +118,13 @@ class TestSeraphEngine:
         mock_diff.return_value = DiffResult(
             files=[FileChange(path="foo.py")],
         )
-        mock_mutate.return_value = [
-            MutationResult(status=MutantStatus.KILLED),
-            MutationResult(status=MutantStatus.SURVIVED),
-        ]
+        mock_mutate.return_value = MutationRunResult(
+            results=[
+                MutationResult(status=MutantStatus.KILLED),
+                MutationResult(status=MutantStatus.SURVIVED),
+            ],
+            tool_available=True,
+        )
 
         engine = SeraphEngine(store)
         report = engine.mutate_only(tmp_repo)
@@ -154,7 +160,7 @@ class TestSeraphEngine:
         )
         # Baseline raises, but pipeline should continue
         mock_baseline.side_effect = RuntimeError("baseline boom")
-        mock_static.return_value = []
+        mock_static.return_value = StaticRunResult(findings=[], tool_config={"ruff": False, "mypy": False})
 
         engine = SeraphEngine(store, skip_mutations=True)
         report = engine.assess(tmp_repo)
@@ -165,3 +171,61 @@ class TestSeraphEngine:
         # Baseline should NOT be in evaluated dimensions (since it failed)
         evaluated_names = {d.name for d in report.dimensions if d.evaluated}
         assert "Test Baseline" not in evaluated_names
+
+    @patch("seraph.core.engine.run_static_analysis")
+    @patch("seraph.core.engine.run_mutations")
+    @patch("seraph.core.engine.parse_diff")
+    def test_empty_mutations_marks_na(
+        self, mock_diff, mock_mutate, mock_static,
+        store: SeraphStore, tmp_repo: Path
+    ):
+        """mutmut available but no results → mutation not in evaluated."""
+        mock_diff.return_value = DiffResult(
+            files=[FileChange(path="src/foo.py")],
+        )
+        mock_mutate.return_value = MutationRunResult(
+            results=[], tool_available=True,
+        )
+        mock_static.return_value = StaticRunResult(
+            findings=[], tool_config={"ruff": False, "mypy": False},
+        )
+
+        engine = SeraphEngine(store, skip_baseline=True)
+        report = engine.assess(tmp_repo)
+
+        evaluated_names = {d.name for d in report.dimensions if d.evaluated}
+        assert "Mutation Score" not in evaluated_names
+
+    @patch("seraph.core.engine.run_static_analysis")
+    @patch("seraph.core.engine.run_mutations")
+    @patch("seraph.core.engine.parse_diff")
+    def test_unconfigured_mypy_excluded_from_score(
+        self, mock_diff, mock_mutate, mock_static,
+        store: SeraphStore, tmp_repo: Path
+    ):
+        """mypy findings present but config False → static score based on ruff only."""
+        mock_diff.return_value = DiffResult(
+            files=[FileChange(path="src/foo.py")],
+        )
+        mock_mutate.return_value = MutationRunResult(
+            results=[MutationResult(status=MutantStatus.KILLED)],
+            tool_available=True,
+        )
+        # 1 ruff finding (LOW=1), 10 mypy findings (HIGH=5 each)
+        ruff_findings = [StaticFinding(severity=Severity.LOW, analyzer=AnalyzerType.RUFF)]
+        mypy_findings = [
+            StaticFinding(severity=Severity.HIGH, analyzer=AnalyzerType.MYPY)
+            for _ in range(10)
+        ]
+        mock_static.return_value = StaticRunResult(
+            findings=ruff_findings + mypy_findings,
+            tool_config={"ruff": True, "mypy": False},
+        )
+
+        engine = SeraphEngine(store, skip_baseline=True)
+        report = engine.assess(tmp_repo)
+
+        # Static score should be based on ruff only (1 LOW finding, weight=1, 1 file)
+        # 100 / (1 + 1/10) = 90.9
+        static_dim = next(d for d in report.dimensions if d.name == "Static Cleanliness")
+        assert static_dim.raw_score == 90.9

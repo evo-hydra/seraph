@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from seraph.models.assessment import MutationResult
@@ -13,16 +14,25 @@ from seraph.models.enums import MutantStatus
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class MutationRunResult:
+    """Wrapper for mutation run output with tool availability info."""
+
+    results: list[MutationResult]
+    tool_available: bool  # True if mutmut was found and executed
+
+
 def run_mutations(
     repo_path: Path,
     files: list[str],
     timeout_per_file: int = 120,
-) -> list[MutationResult]:
+) -> MutationRunResult:
     """Run mutmut on each file and return mutation results.
 
     Shells out to mutmut CLI for process isolation and stable contract.
     """
     all_results: list[MutationResult] = []
+    tool_available = False
 
     for file_path in files:
         if not file_path.endswith(".py"):
@@ -31,16 +41,21 @@ def run_mutations(
         if not full_path.exists():
             continue
 
-        results = _mutate_single_file(repo_path, file_path, timeout_per_file)
+        results, available = _mutate_single_file(repo_path, file_path, timeout_per_file)
         all_results.extend(results)
+        if available:
+            tool_available = True
 
-    return all_results
+    return MutationRunResult(results=all_results, tool_available=tool_available)
 
 
 def _mutate_single_file(
     repo_path: Path, file_path: str, timeout: int
-) -> list[MutationResult]:
-    """Run mutmut on a single file and parse results."""
+) -> tuple[list[MutationResult], bool]:
+    """Run mutmut on a single file and parse results.
+
+    Returns (results, tool_available) tuple.
+    """
     try:
         subprocess.run(
             [
@@ -56,19 +71,22 @@ def _mutate_single_file(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        return [
-            MutationResult(
-                file_path=file_path,
-                mutant_id="timeout",
-                operator="all",
-                status=MutantStatus.TIMEOUT,
-            )
-        ]
+        return (
+            [
+                MutationResult(
+                    file_path=file_path,
+                    mutant_id="timeout",
+                    operator="all",
+                    status=MutantStatus.TIMEOUT,
+                )
+            ],
+            True,
+        )
     except FileNotFoundError:
         logger.warning("mutmut not installed — install with: pip install 'seraph[mutation]'")
-        return []
+        return ([], False)
 
-    return _parse_mutmut_results(repo_path, file_path)
+    return (_parse_mutmut_results(repo_path, file_path), True)
 
 
 def _parse_mutmut_results(repo_path: Path, file_path: str) -> list[MutationResult]:
