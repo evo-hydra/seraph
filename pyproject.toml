@@ -41,9 +41,9 @@ seraph = "seraph.cli.app:app"
 seraph-mcp = "seraph.mcp.server:main"
 
 [project.urls]
-Homepage = "https://github.com/evo-hydra/verdict"
-Repository = "https://github.com/evo-hydra/verdict"
-Issues = "https://github.com/evo-hydra/verdict/issues"
+Homepage = "https://github.com/evo-hydra/seraph"
+Repository = "https://github.com/evo-hydra/seraph"
+Issues = "https://github.com/evo-hydra/seraph/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/seraph"]
