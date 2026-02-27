@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 
 from verdict.models.assessment import BaselineResult
+
+logger = logging.getLogger(__name__)
 
 
 def run_baseline(
@@ -70,6 +73,9 @@ def _run_tests_once(repo_path: Path, test_cmd: str, timeout: int) -> set[str]:
         )
     except subprocess.TimeoutExpired:
         return {"__timeout__"}
+    except FileNotFoundError:
+        logger.warning("Test command '%s' not found on PATH", test_cmd)
+        return {"__cmd_not_found__"}
 
     return _parse_test_failures(result.stdout)
 

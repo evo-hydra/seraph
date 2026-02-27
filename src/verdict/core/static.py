@@ -59,9 +59,9 @@ def _run_ruff(repo_path: Path, abs_files: list[str], timeout: int) -> list[Stati
                     )
                 )
     except subprocess.TimeoutExpired:
-        logger.debug("ruff timed out after %ds", timeout)
+        logger.warning("ruff timed out after %ds", timeout)
     except FileNotFoundError:
-        logger.debug("ruff not found on PATH")
+        logger.warning("ruff not found on PATH — install with: pip install ruff")
     except json.JSONDecodeError as exc:
         logger.debug("Failed to parse ruff JSON output: %s", exc)
     return findings
@@ -83,9 +83,9 @@ def _run_mypy(repo_path: Path, abs_files: list[str], timeout: int) -> list[Stati
             if finding:
                 findings.append(finding)
     except subprocess.TimeoutExpired:
-        logger.debug("mypy timed out after %ds", timeout)
+        logger.warning("mypy timed out after %ds", timeout)
     except FileNotFoundError:
-        logger.debug("mypy not found on PATH")
+        logger.warning("mypy not found on PATH — install with: pip install mypy")
     return findings
 
 

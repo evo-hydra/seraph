@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -10,10 +11,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from verdict.config import VerdictConfig
 from verdict.core.engine import VerdictEngine
 from verdict.core.store import VerdictStore
 from verdict.models.assessment import AssessmentReport, Feedback
 from verdict.models.enums import FeedbackOutcome
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     name="verdict",
@@ -22,9 +26,24 @@ app = typer.Typer(
 )
 console = Console()
 
+# Global state set by the callback
+_verbose: bool = False
 
-def _get_store(repo_path: Path) -> VerdictStore:
-    db_path = repo_path / ".verdict" / "verdict.db"
+
+@app.callback()
+def main_callback(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
+) -> None:
+    """Verdict — verification intelligence for AI-generated code."""
+    global _verbose
+    _verbose = verbose
+
+
+def _get_store(repo_path: Path, config: VerdictConfig | None = None) -> VerdictStore:
+    if config:
+        db_path = repo_path / config.pipeline.db_dir / config.pipeline.db_name
+    else:
+        db_path = repo_path / ".verdict" / "verdict.db"
     return VerdictStore(db_path)
 
 
@@ -40,11 +59,17 @@ def assess(
 ) -> None:
     """Run a full assessment on code changes."""
     repo_path = repo_path.resolve()
+    config = VerdictConfig.load(repo_path)
+
+    # Setup logging after config is loaded
+    from verdict.logging_setup import setup_logging
+    setup_logging(config.logging, verbose=_verbose)
 
     try:
-        with _get_store(repo_path) as store:
+        with _get_store(repo_path, config) as store:
             engine = VerdictEngine(
                 store,
+                config=config,
                 test_cmd=test_cmd,
                 skip_baseline=skip_baseline,
                 skip_mutations=skip_mutations,
@@ -61,7 +86,10 @@ def assess(
     except typer.Exit:
         raise
     except Exception as exc:
+        logger.debug("Assessment failed", exc_info=True)
         console.print(f"[red]Assessment failed: {exc}[/red]")
+        if not _verbose:
+            console.print("[dim]Run with --verbose for full traceback[/dim]")
         raise typer.Exit(1)
 
 
@@ -135,6 +163,35 @@ def feedback(
         )
         store.save_feedback(fb)
         console.print(f"[green]Feedback recorded: {outcome} for {assessment_id[:8]}[/green]")
+
+
+@app.command()
+def prune(
+    repo_path: Path = typer.Argument(Path("."), help="Path to the repository"),
+    days: Optional[int] = typer.Option(None, "--days", "-d", help="Retention days (default from config)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+) -> None:
+    """Delete old assessment data beyond the retention period."""
+    repo_path = repo_path.resolve()
+    config = VerdictConfig.load(repo_path)
+    retention_days = days if days is not None else config.retention.retention_days
+
+    if not yes:
+        confirm = typer.confirm(f"Delete data older than {retention_days} days?")
+        if not confirm:
+            console.print("[dim]Aborted.[/dim]")
+            return
+
+    with _get_store(repo_path, config) as store:
+        result = store.prune(retention_days)
+        total = sum(result.values())
+        if total == 0:
+            console.print("[dim]No data to prune.[/dim]")
+        else:
+            console.print(f"[green]Pruned {total} rows:[/green]")
+            for table_name, count in result.items():
+                if count > 0:
+                    console.print(f"  {table_name}: {count}")
 
 
 def _display_report(report: AssessmentReport) -> None:

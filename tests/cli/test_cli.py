@@ -143,3 +143,51 @@ class TestCLI:
         assert result.exit_code == 1
         assert "Assessment failed" in result.stdout
         assert "git not found" in result.stdout
+
+    @patch("verdict.cli.app.VerdictEngine")
+    def test_assess_engine_error_suggests_verbose(self, mock_engine_cls, cli_store):
+        """Error message suggests --verbose when not in verbose mode."""
+        tmp_path, _store = cli_store
+
+        mock_engine = MagicMock()
+        mock_engine.assess.side_effect = RuntimeError("boom")
+        mock_engine_cls.return_value = mock_engine
+
+        result = runner.invoke(app, [
+            "assess", str(tmp_path),
+            "--skip-baseline", "--skip-mutations",
+        ])
+        assert result.exit_code == 1
+        assert "--verbose" in result.stdout
+
+    def test_prune_command(self, cli_store):
+        """prune command deletes old data."""
+        tmp_path, store = cli_store
+
+        report = AssessmentReport(
+            repo_path=str(tmp_path),
+            files_changed=["foo.py"],
+            overall_grade=Grade.A,
+        )
+        store.save_assessment(report)
+
+        # Age the assessment
+        store.conn.execute(
+            "UPDATE assessments SET created_at = datetime('now', '-200 days') WHERE id = ?",
+            (report.id,),
+        )
+        store.conn.commit()
+
+        result = runner.invoke(app, [
+            "prune", str(tmp_path), "--days", "90", "--yes",
+        ])
+        assert result.exit_code == 0
+        assert "Pruned" in result.stdout or "No data" in result.stdout
+
+    def test_verbose_flag(self, cli_store):
+        """--verbose flag is accepted without error."""
+        tmp_path, _store = cli_store
+        result = runner.invoke(app, [
+            "--verbose", "history", str(tmp_path),
+        ])
+        assert result.exit_code == 0

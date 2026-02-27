@@ -81,6 +81,9 @@ def parse_diff(repo_path: Path, ref_before: str | None = None, ref_after: str | 
     except subprocess.TimeoutExpired:
         logger.debug("git diff timed out for %s", repo_path)
         return DiffResult(ref_before=ref_before, ref_after=ref_after)
+    except FileNotFoundError:
+        logger.warning("git not found on PATH")
+        return DiffResult(ref_before=ref_before, ref_after=ref_after)
 
     return _parse_diff_output(result.stdout, ref_before, ref_after)
 

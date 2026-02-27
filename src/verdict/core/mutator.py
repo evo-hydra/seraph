@@ -65,7 +65,7 @@ def _mutate_single_file(
             )
         ]
     except FileNotFoundError:
-        # mutmut not installed
+        logger.warning("mutmut not installed — install with: pip install 'verdict[mutation]'")
         return []
 
     return _parse_mutmut_results(repo_path, file_path)

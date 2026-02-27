@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from verdict.core.store import VerdictStore, SCHEMA_VERSION, _MIGRATIONS
+from verdict.core.store import VerdictStore, SCHEMA_VERSION, _MIGRATIONS, _migrate_v1_to_v2
 from verdict.models.assessment import (
     AssessmentReport,
     BaselineResult,
@@ -32,7 +32,7 @@ class TestVerdictStore:
         cur = store.conn.execute(
             "SELECT value FROM verdict_meta WHERE key = 'schema_version'"
         )
-        assert cur.fetchone()["value"] == "1"
+        assert cur.fetchone()["value"] == str(SCHEMA_VERSION)
 
     def test_wal_mode(self, store: VerdictStore):
         cur = store.conn.execute("PRAGMA journal_mode")
@@ -229,3 +229,121 @@ class TestMigrationSystem:
                     "SELECT value FROM verdict_meta WHERE key = 'schema_version'"
                 )
                 assert cur.fetchone()["value"] == "2"
+
+    def test_migration_v1_to_v2_adds_indices(self, tmp_path):
+        """The v1->v2 migration adds the expected indices."""
+        import sqlite3
+
+        db_path = tmp_path / "indices.db"
+
+        # Create a v1 database manually (without indices)
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS verdict_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS assessments (
+                id TEXT PRIMARY KEY, repo_path TEXT, ref_before TEXT, ref_after TEXT,
+                files_changed TEXT, mutation_score REAL, static_issues INTEGER,
+                sentinel_warnings INTEGER, baseline_flaky INTEGER DEFAULT 0,
+                grade TEXT, report_json TEXT, created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS baselines (
+                id TEXT PRIMARY KEY, repo_path TEXT, test_cmd TEXT,
+                run_count INTEGER DEFAULT 3, flaky_tests TEXT, pass_rate REAL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS mutation_cache (
+                id TEXT PRIMARY KEY, assessment_id TEXT, file_path TEXT,
+                mutant_id TEXT, operator TEXT, line_number INTEGER,
+                status TEXT, created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS feedback (
+                id TEXT PRIMARY KEY, assessment_id TEXT, outcome TEXT,
+                context TEXT, created_at TEXT DEFAULT (datetime('now'))
+            );
+            INSERT INTO verdict_meta (key, value) VALUES ('schema_version', '1');
+        """)
+        conn.close()
+
+        # Open with current code — should run migration
+        with VerdictStore(db_path) as store:
+            cur = store.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' ORDER BY name"
+            )
+            indices = {row["name"] for row in cur.fetchall()}
+
+        assert "idx_assessments_repo_created" in indices
+        assert "idx_assessments_created" in indices
+        assert "idx_mutation_cache_assessment" in indices
+        assert "idx_baselines_repo_created" in indices
+        assert "idx_feedback_assessment" in indices
+
+
+class TestPrune:
+    def test_prune_deletes_old(self, store: VerdictStore):
+        """Prune deletes assessments older than retention days."""
+        report = AssessmentReport(
+            repo_path="/tmp/test",
+            files_changed=["foo.py"],
+            overall_grade=Grade.A,
+        )
+        store.save_assessment(report)
+
+        # Manually set created_at to 200 days ago
+        store.conn.execute(
+            "UPDATE assessments SET created_at = datetime('now', '-200 days') WHERE id = ?",
+            (report.id,),
+        )
+        store.conn.commit()
+
+        result = store.prune(retention_days=90)
+        assert result["assessments"] == 1
+
+        # Verify it's gone
+        assert store.get_assessment(report.id) is None
+
+    def test_prune_preserves_recent(self, store: VerdictStore):
+        """Prune does not delete recent assessments."""
+        report = AssessmentReport(
+            repo_path="/tmp/test",
+            files_changed=["foo.py"],
+            overall_grade=Grade.A,
+        )
+        store.save_assessment(report)
+
+        result = store.prune(retention_days=90)
+        assert result["assessments"] == 0
+
+        # Verify it's still there
+        assert store.get_assessment(report.id) is not None
+
+    def test_prune_cascades(self, store: VerdictStore):
+        """Prune also deletes feedback and mutations for old assessments."""
+        mutations = [
+            MutationResult(file_path="foo.py", mutant_id="1", operator="negate", status=MutantStatus.KILLED),
+        ]
+        report = AssessmentReport(
+            repo_path="/tmp/test",
+            files_changed=["foo.py"],
+            overall_grade=Grade.A,
+            mutations=mutations,
+        )
+        store.save_assessment(report)
+
+        fb = Feedback(
+            assessment_id=report.id,
+            outcome=FeedbackOutcome.ACCEPTED,
+            context="test",
+        )
+        store.save_feedback(fb)
+
+        # Age the assessment
+        store.conn.execute(
+            "UPDATE assessments SET created_at = datetime('now', '-200 days') WHERE id = ?",
+            (report.id,),
+        )
+        store.conn.commit()
+
+        result = store.prune(retention_days=90)
+        assert result["assessments"] == 1
+        assert result["mutation_cache"] == 1
+        assert result["feedback"] == 1

@@ -22,7 +22,7 @@ from verdict.models.enums import FeedbackOutcome, Grade, MutantStatus
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS verdict_meta (
@@ -73,6 +73,12 @@ CREATE TABLE IF NOT EXISTS feedback (
     context         TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_assessments_repo_created ON assessments(repo_path, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_assessments_created ON assessments(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mutation_cache_assessment ON mutation_cache(assessment_id, file_path);
+CREATE INDEX IF NOT EXISTS idx_baselines_repo_created ON baselines(repo_path, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_assessment ON feedback(assessment_id, created_at DESC);
 """
 
 
@@ -81,9 +87,18 @@ CREATE TABLE IF NOT EXISTS feedback (
 # Add new migrations here as functions, then register in _MIGRATIONS.
 # Pattern: def _migrate_vN_to_vN1(conn: sqlite3.Connection) -> None
 
+
+def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
+    """Add performance indices for common query patterns."""
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_assessments_repo_created ON assessments(repo_path, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_assessments_created ON assessments(created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_mutation_cache_assessment ON mutation_cache(assessment_id, file_path)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_baselines_repo_created ON baselines(repo_path, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_feedback_assessment ON feedback(assessment_id, created_at DESC)")
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
-    # Example for future use:
-    # 1: _migrate_v1_to_v2,
+    1: _migrate_v1_to_v2,
 }
 
 _STATS_TABLES = frozenset({"assessments", "baselines", "mutation_cache", "feedback"})
@@ -327,6 +342,60 @@ class VerdictStore:
             )
             for r in cur.fetchall()
         ]
+
+    # ── Prune ────────────────────────────────────────────────────
+
+    def prune(self, retention_days: int = 90) -> dict[str, int]:
+        """Delete data older than retention_days.
+
+        Deletes in dependency order to respect foreign keys.
+        Returns {table: rows_deleted}.
+        """
+        cutoff = f"datetime('now', '-{retention_days} days')"
+        result: dict[str, int] = {}
+
+        # Get assessment IDs to delete
+        old_ids = self.conn.execute(
+            f"SELECT id FROM assessments WHERE created_at < {cutoff}"  # noqa: S608
+        ).fetchall()
+        old_id_list = [r["id"] for r in old_ids]
+
+        if not old_id_list:
+            return {"feedback": 0, "mutation_cache": 0, "baselines": 0, "assessments": 0}
+
+        placeholders = ",".join("?" * len(old_id_list))
+
+        # Delete in dependency order
+        cur = self.conn.execute(
+            f"DELETE FROM feedback WHERE assessment_id IN ({placeholders})",  # noqa: S608
+            old_id_list,
+        )
+        result["feedback"] = cur.rowcount
+
+        cur = self.conn.execute(
+            f"DELETE FROM mutation_cache WHERE assessment_id IN ({placeholders})",  # noqa: S608
+            old_id_list,
+        )
+        result["mutation_cache"] = cur.rowcount
+
+        cur = self.conn.execute(
+            f"DELETE FROM baselines WHERE created_at < {cutoff}"  # noqa: S608
+        )
+        result["baselines"] = cur.rowcount
+
+        cur = self.conn.execute(
+            f"DELETE FROM assessments WHERE id IN ({placeholders})",  # noqa: S608
+            old_id_list,
+        )
+        result["assessments"] = cur.rowcount
+
+        self.conn.commit()
+
+        total = sum(result.values())
+        if total > 0:
+            self.conn.execute("VACUUM")
+
+        return result
 
     # ── Stats ────────────────────────────────────────────────────
 

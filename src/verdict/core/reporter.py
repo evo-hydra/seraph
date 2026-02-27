@@ -6,6 +6,9 @@ sentinel risk, and co-change coverage scores are all computed in this module.
 
 from __future__ import annotations
 
+import logging
+
+from verdict.config import ScoringConfig
 from verdict.models.assessment import (
     AssessmentReport,
     BaselineResult,
@@ -19,7 +22,9 @@ from verdict.models.assessment import (
 )
 from verdict.models.enums import Grade, MutantStatus, Severity
 
-# ── Weight Configuration ──────────────────────────────────────
+logger = logging.getLogger(__name__)
+
+# ── Weight Configuration (defaults — overridden by ScoringConfig) ──
 
 DIMENSION_WEIGHTS = {
     "mutation": 0.30,
@@ -29,7 +34,7 @@ DIMENSION_WEIGHTS = {
     "co_change": 0.15,
 }
 
-# ── Scoring Constants ─────────────────────────────────────────
+# ── Scoring Constants (defaults — overridden by ScoringConfig) ─────
 
 BASELINE_DEDUCTION_PER_FLAKY = 10.0
 RISK_DEDUCTION_PER_PITFALL = 5.0
@@ -50,12 +55,15 @@ SEVERITY_WEIGHTS = {
 # ── Score Computation Functions ───────────────────────────────
 
 
-def compute_baseline_score(baseline: BaselineResult) -> float:
+def compute_baseline_score(
+    baseline: BaselineResult, scoring: ScoringConfig | None = None
+) -> float:
     """Convert baseline result to a 0-100 score."""
     flaky_count = len(baseline.flaky_tests)
     if flaky_count == 0:
         return 100.0
-    return max(0.0, 100.0 - flaky_count * BASELINE_DEDUCTION_PER_FLAKY)
+    deduction = scoring.baseline_deduction_per_flaky if scoring else BASELINE_DEDUCTION_PER_FLAKY
+    return max(0.0, 100.0 - flaky_count * deduction)
 
 
 def compute_mutation_score(results: list[MutationResult]) -> float:
@@ -67,7 +75,9 @@ def compute_mutation_score(results: list[MutationResult]) -> float:
     return round((killed / total) * 100, 1)
 
 
-def compute_static_score(findings: list[StaticFinding], file_count: int) -> float:
+def compute_static_score(
+    findings: list[StaticFinding], file_count: int, scoring: ScoringConfig | None = None
+) -> float:
     """Compute static cleanliness score (0-100).
 
     Score decreases based on issues per file, weighted by severity.
@@ -75,26 +85,48 @@ def compute_static_score(findings: list[StaticFinding], file_count: int) -> floa
     if file_count == 0:
         return 100.0
 
-    weighted_issues = sum(SEVERITY_WEIGHTS.get(f.severity, 1) for f in findings)
+    sev_weights = _get_severity_weights(scoring)
+    weighted_issues = sum(sev_weights.get(f.severity, 1) for f in findings)
     issues_per_file = weighted_issues / file_count
 
-    score = max(0.0, 100.0 - (issues_per_file * STATIC_ISSUE_SCALE_FACTOR))
+    scale = scoring.static_issue_scale_factor if scoring else STATIC_ISSUE_SCALE_FACTOR
+    score = max(0.0, 100.0 - (issues_per_file * scale))
     return round(score, 1)
 
 
-def compute_risk_score(signals: SentinelSignals) -> float:
+def compute_risk_score(
+    signals: SentinelSignals, scoring: ScoringConfig | None = None
+) -> float:
     """Compute Sentinel risk score (0-100, higher = safer)."""
     if not signals.available:
         return 100.0
 
+    max_ded = scoring.risk_hot_file_max_deduction if scoring else RISK_HOT_FILE_MAX_DEDUCTION
+    divisor = scoring.risk_hot_file_churn_divisor if scoring else RISK_HOT_FILE_CHURN_DIVISOR
+    pitfall_ded = scoring.risk_deduction_per_pitfall if scoring else RISK_DEDUCTION_PER_PITFALL
+    co_ded = scoring.risk_deduction_per_missing_co_change if scoring else RISK_DEDUCTION_PER_MISSING_CO_CHANGE
+
     deductions = 0.0
     for hf in signals.hot_files:
-        deductions += min(RISK_HOT_FILE_MAX_DEDUCTION, hf.churn_score / RISK_HOT_FILE_CHURN_DIVISOR)
+        deductions += min(max_ded, hf.churn_score / divisor)
 
-    deductions += len(signals.pitfall_matches) * RISK_DEDUCTION_PER_PITFALL
-    deductions += len(signals.missing_co_changes) * RISK_DEDUCTION_PER_MISSING_CO_CHANGE
+    deductions += len(signals.pitfall_matches) * pitfall_ded
+    deductions += len(signals.missing_co_changes) * co_ded
 
     return round(max(0.0, 100.0 - deductions), 1)
+
+
+def _get_severity_weights(scoring: ScoringConfig | None) -> dict:
+    """Get severity weights from config or module defaults."""
+    if scoring:
+        return {
+            Severity.CRITICAL: scoring.severity_critical,
+            Severity.HIGH: scoring.severity_high,
+            Severity.MEDIUM: scoring.severity_medium,
+            Severity.LOW: scoring.severity_low,
+            Severity.INFO: scoring.severity_info,
+        }
+    return SEVERITY_WEIGHTS
 
 
 def compute_co_change_score(signals: SentinelSignals, changed_files: list[str]) -> float:
@@ -136,6 +168,7 @@ def build_report(
     baseline: BaselineResult | None,
     sentinel_signals: SentinelSignals,
     evaluated_dimensions: set[str] | None = None,
+    scoring: ScoringConfig | None = None,
 ) -> AssessmentReport:
     """Build a complete assessment report from individual dimension scores.
 
@@ -143,21 +176,24 @@ def build_report(
         evaluated_dimensions: Set of dimension keys that were actually evaluated.
             If None, all dimensions are considered evaluated.
             Valid keys: "mutation", "static", "baseline", "sentinel_risk", "co_change"
+        scoring: Optional scoring configuration. Uses module defaults if None.
     """
     all_dims = {"mutation", "static", "baseline", "sentinel_risk", "co_change"}
     evaluated = evaluated_dimensions if evaluated_dimensions is not None else all_dims
+    weights = scoring.dimension_weights if scoring else DIMENSION_WEIGHTS
+    thresholds = scoring.grade_thresholds if scoring else None
 
     dimensions = [
-        _score_dimension("Mutation Score", mutation_score, DIMENSION_WEIGHTS["mutation"],
-                         _mutation_details(mutations), "mutation" in evaluated),
-        _score_dimension("Static Cleanliness", static_score, DIMENSION_WEIGHTS["static"],
-                         _static_details(static_findings), "static" in evaluated),
-        _score_dimension("Test Baseline", baseline_score, DIMENSION_WEIGHTS["baseline"],
-                         _baseline_details(baseline), "baseline" in evaluated),
-        _score_dimension("Sentinel Risk", sentinel_risk_score, DIMENSION_WEIGHTS["sentinel_risk"],
-                         _sentinel_details(sentinel_signals), "sentinel_risk" in evaluated),
-        _score_dimension("Co-change Coverage", co_change_score, DIMENSION_WEIGHTS["co_change"],
-                         _cochange_details(sentinel_signals), "co_change" in evaluated),
+        _score_dimension("Mutation Score", mutation_score, weights["mutation"],
+                         _mutation_details(mutations), "mutation" in evaluated, thresholds),
+        _score_dimension("Static Cleanliness", static_score, weights["static"],
+                         _static_details(static_findings), "static" in evaluated, thresholds),
+        _score_dimension("Test Baseline", baseline_score, weights["baseline"],
+                         _baseline_details(baseline), "baseline" in evaluated, thresholds),
+        _score_dimension("Sentinel Risk", sentinel_risk_score, weights["sentinel_risk"],
+                         _sentinel_details(sentinel_signals), "sentinel_risk" in evaluated, thresholds),
+        _score_dimension("Co-change Coverage", co_change_score, weights["co_change"],
+                         _cochange_details(sentinel_signals), "co_change" in evaluated, thresholds),
     ]
 
     # Overall score only considers evaluated dimensions, re-weighted
@@ -171,7 +207,7 @@ def build_report(
     else:
         overall_score = 100.0
 
-    overall_grade = Grade.from_score(overall_score)
+    overall_grade = Grade.from_score(overall_score, thresholds)
     gaps = _identify_gaps(dimensions)
 
     return AssessmentReport(
@@ -195,7 +231,12 @@ def build_report(
 
 
 def _score_dimension(
-    name: str, raw_score: float, weight: float, details: str, evaluated: bool
+    name: str,
+    raw_score: float,
+    weight: float,
+    details: str,
+    evaluated: bool,
+    thresholds: tuple[float, float, float, float] | None = None,
 ) -> DimensionScore:
     if not evaluated:
         return DimensionScore(
@@ -203,7 +244,7 @@ def _score_dimension(
             raw_score=raw_score,
             weight=weight,
             weighted_score=0.0,
-            grade=Grade.from_score(raw_score),
+            grade=Grade.from_score(raw_score, thresholds),
             details="Not evaluated",
             evaluated=False,
         )
@@ -212,7 +253,7 @@ def _score_dimension(
         raw_score=round(raw_score, 1),
         weight=weight,
         weighted_score=round(raw_score * weight, 1),
-        grade=Grade.from_score(raw_score),
+        grade=Grade.from_score(raw_score, thresholds),
         details=details,
         evaluated=True,
     )

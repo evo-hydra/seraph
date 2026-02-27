@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from verdict.config import VerdictConfig
 from verdict.core.engine import VerdictEngine
 from verdict.core.store import VerdictStore
 from verdict.mcp.formatters import (
@@ -22,9 +23,12 @@ def _get_repo_path() -> Path:
     return Path(os.environ.get("VERDICT_REPO_PATH", os.getcwd())).resolve()
 
 
-def _get_store(repo_path: Path) -> VerdictStore:
+def _get_store(repo_path: Path, config: VerdictConfig | None = None) -> VerdictStore:
     """Create a VerdictStore for the repo (use as context manager)."""
-    db_path = repo_path / ".verdict" / "verdict.db"
+    if config:
+        db_path = repo_path / config.pipeline.db_dir / config.pipeline.db_name
+    else:
+        db_path = repo_path / ".verdict" / "verdict.db"
     return VerdictStore(db_path)
 
 
@@ -56,10 +60,12 @@ def create_server():
             skip_mutations: Skip mutation testing (much faster)
         """
         repo_path = _get_repo_path()
+        config = VerdictConfig.load(repo_path)
         try:
-            with _get_store(repo_path) as store:
+            with _get_store(repo_path, config) as store:
                 engine = VerdictEngine(
                     store,
+                    config=config,
                     skip_baseline=skip_baseline,
                     skip_mutations=skip_mutations,
                 )
@@ -68,7 +74,9 @@ def create_server():
                     ref_before=ref_before or None,
                     ref_after=ref_after or None,
                 )
-                return format_assessment(report.to_dict())
+                return format_assessment(
+                    report.to_dict(), max_chars=config.pipeline.max_output_chars
+                )
         except Exception as exc:
             return f"Assessment failed: {exc}"
 
@@ -87,15 +95,19 @@ def create_server():
             ref_after: Git ref after changes (default: working tree)
         """
         repo_path = _get_repo_path()
+        config = VerdictConfig.load(repo_path)
         try:
-            with _get_store(repo_path) as store:
-                engine = VerdictEngine(store)
+            with _get_store(repo_path, config) as store:
+                engine = VerdictEngine(store, config=config)
                 report = engine.mutate_only(
                     repo_path,
                     ref_before=ref_before or None,
                     ref_after=ref_after or None,
                 )
-                return format_mutations(report.mutations, report.mutation_score)
+                return format_mutations(
+                    report.mutations, report.mutation_score,
+                    max_chars=config.pipeline.max_output_chars,
+                )
         except Exception as exc:
             return f"Mutation testing failed: {exc}"
 
@@ -111,9 +123,12 @@ def create_server():
             offset: Number of results to skip (default 0)
         """
         repo_path = _get_repo_path()
-        with _get_store(repo_path) as store:
+        config = VerdictConfig.load(repo_path)
+        with _get_store(repo_path, config) as store:
             assessments = store.get_assessments(limit=limit, offset=offset)
-            return format_history(assessments)
+            return format_history(
+                assessments, max_chars=config.pipeline.max_output_chars
+            )
 
     @mcp.tool()
     def verdict_feedback(
@@ -131,7 +146,8 @@ def create_server():
             context: Optional explanation
         """
         repo_path = _get_repo_path()
-        with _get_store(repo_path) as store:
+        config = VerdictConfig.load(repo_path)
+        with _get_store(repo_path, config) as store:
             # Validate outcome
             try:
                 fb_outcome = FeedbackOutcome(outcome)
@@ -156,6 +172,12 @@ def create_server():
 
 def main():
     """Entry point for verdict-mcp."""
+    from verdict.logging_setup import setup_logging
+
+    repo_path = _get_repo_path()
+    config = VerdictConfig.load(repo_path)
+    setup_logging(config.logging)
+
     server = create_server()
     server.run(transport="stdio")
 

@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from verdict.config import VerdictConfig, TimeoutConfig, ScoringConfig
 from verdict.core.differ import DiffResult, FileChange
 from verdict.core.engine import VerdictEngine
 from verdict.core.store import VerdictStore
@@ -128,3 +129,39 @@ class TestVerdictEngine:
         evaluated = [d for d in report.dimensions if d.evaluated]
         assert len(evaluated) == 1
         assert evaluated[0].name == "Mutation Score"
+
+    def test_engine_accepts_config(self, store: VerdictStore, tmp_repo: Path):
+        """VerdictEngine works with a custom VerdictConfig."""
+        config = VerdictConfig(
+            timeouts=TimeoutConfig(mutation_per_file=60, static_analysis=30),
+            scoring=ScoringConfig(mutation_weight=0.50, static_weight=0.10),
+        )
+        engine = VerdictEngine(store, config=config, skip_baseline=True, skip_mutations=True)
+        report = engine.assess(tmp_repo)
+        # Should still work (empty diff = grade A)
+        assert report.overall_grade == Grade.A
+
+    @patch("verdict.core.engine.run_static_analysis")
+    @patch("verdict.core.engine.run_baseline")
+    @patch("verdict.core.engine.parse_diff")
+    def test_step_failure_doesnt_crash_pipeline(
+        self, mock_diff, mock_baseline, mock_static,
+        store: VerdictStore, tmp_repo: Path
+    ):
+        """A single step failure doesn't crash the entire pipeline."""
+        mock_diff.return_value = DiffResult(
+            files=[FileChange(path="src/foo.py")],
+        )
+        # Baseline raises, but pipeline should continue
+        mock_baseline.side_effect = RuntimeError("baseline boom")
+        mock_static.return_value = []
+
+        engine = VerdictEngine(store, skip_mutations=True)
+        report = engine.assess(tmp_repo)
+
+        # Pipeline should still produce a report
+        assert report is not None
+        assert report.overall_grade is not None
+        # Baseline should NOT be in evaluated dimensions (since it failed)
+        evaluated_names = {d.name for d in report.dimensions if d.evaluated}
+        assert "Test Baseline" not in evaluated_names

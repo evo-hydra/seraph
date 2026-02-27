@@ -15,14 +15,17 @@ class Grade(str, Enum):
     F = "F"
 
     @classmethod
-    def from_score(cls, score: float) -> Grade:
-        if score >= 90:
+    def from_score(
+        cls, score: float, thresholds: tuple[float, float, float, float] | None = None
+    ) -> Grade:
+        a, b, c, d = thresholds or (90.0, 75.0, 60.0, 40.0)
+        if score >= a:
             return cls.A
-        if score >= 75:
+        if score >= b:
             return cls.B
-        if score >= 60:
+        if score >= c:
             return cls.C
-        if score >= 40:
+        if score >= d:
             return cls.D
         return cls.F
 

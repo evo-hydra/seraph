@@ -6,7 +6,7 @@ from __future__ import annotations
 MAX_OUTPUT_CHARS = 16_000
 
 
-def format_assessment(report_dict: dict) -> str:
+def format_assessment(report_dict: dict, *, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     """Format an assessment report for LLM consumption."""
     lines: list[str] = []
 
@@ -48,10 +48,12 @@ def format_assessment(report_dict: dict) -> str:
     lines.append(f"ID: {report_dict.get('id', '?')}")
     lines.append(f"Created: {report_dict.get('created_at', '?')}")
 
-    return _truncate("\n".join(lines))
+    return _truncate("\n".join(lines), max_chars=max_chars)
 
 
-def format_history(assessments: list) -> str:
+def format_history(
+    assessments: list, *, max_chars: int = MAX_OUTPUT_CHARS
+) -> str:
     """Format assessment history for LLM consumption.
 
     Accepts list of StoredAssessment dataclasses.
@@ -76,10 +78,12 @@ def format_history(assessments: list) -> str:
             f"id={a.id[:8] if a.id else '?'}"
         )
 
-    return _truncate("\n".join(lines))
+    return _truncate("\n".join(lines), max_chars=max_chars)
 
 
-def format_mutations(mutations: list, score: float) -> str:
+def format_mutations(
+    mutations: list, score: float, *, max_chars: int = MAX_OUTPUT_CHARS
+) -> str:
     """Format mutation results for LLM consumption.
 
     Accepts list of MutationResult dataclasses.
@@ -107,7 +111,7 @@ def format_mutations(mutations: list, score: float) -> str:
             lines.append(f"- ... and {len(muts) - 10} more")
         lines.append("")
 
-    return _truncate("\n".join(lines))
+    return _truncate("\n".join(lines), max_chars=max_chars)
 
 
 def format_feedback_response(assessment_id: str, outcome: str) -> str:
@@ -115,8 +119,8 @@ def format_feedback_response(assessment_id: str, outcome: str) -> str:
     return f"Feedback recorded: {outcome} for assessment {assessment_id[:8]}"
 
 
-def _truncate(text: str) -> str:
-    """Truncate to stay within 4K token budget."""
-    if len(text) <= MAX_OUTPUT_CHARS:
+def _truncate(text: str, *, max_chars: int = MAX_OUTPUT_CHARS) -> str:
+    """Truncate to stay within token budget."""
+    if len(text) <= max_chars:
         return text
-    return text[: MAX_OUTPUT_CHARS - 50] + "\n\n... (output truncated)"
+    return text[: max_chars - 50] + "\n\n... (output truncated)"

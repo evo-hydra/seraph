@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+from verdict.config import VerdictConfig
 from verdict.core.baseline import run_baseline
 from verdict.core.bridge import SentinelBridge
 from verdict.core.differ import parse_diff
@@ -23,6 +25,8 @@ from verdict.models.assessment import (
     SentinelSignals,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class VerdictEngine:
     """Main assessment engine implementing the 7-step pipeline.
@@ -41,18 +45,20 @@ class VerdictEngine:
         self,
         store: VerdictStore,
         *,
+        config: VerdictConfig | None = None,
         test_cmd: str = "pytest",
-        baseline_runs: int = 3,
-        mutation_timeout: int = 120,
-        static_timeout: int = 60,
+        baseline_runs: int | None = None,
+        mutation_timeout: int | None = None,
+        static_timeout: int | None = None,
         skip_baseline: bool = False,
         skip_mutations: bool = False,
     ):
         self._store = store
+        self._config = config or VerdictConfig()
         self._test_cmd = test_cmd
-        self._baseline_runs = baseline_runs
-        self._mutation_timeout = mutation_timeout
-        self._static_timeout = static_timeout
+        self._baseline_runs = baseline_runs or self._config.pipeline.baseline_runs
+        self._mutation_timeout = mutation_timeout or self._config.timeouts.mutation_per_file
+        self._static_timeout = static_timeout or self._config.timeouts.static_analysis
         self._skip_baseline = skip_baseline
         self._skip_mutations = skip_mutations
 
@@ -64,6 +70,7 @@ class VerdictEngine:
     ) -> AssessmentReport:
         """Run the full 7-step assessment pipeline."""
         repo = Path(repo_path).resolve()
+        scoring = self._config.scoring
 
         # Step 1: Diff
         diff = parse_diff(repo, ref_before, ref_after)
@@ -82,30 +89,43 @@ class VerdictEngine:
         baseline = None
         baseline_score = 100.0
         if not self._skip_baseline and py_files:
-            baseline = run_baseline(repo, self._test_cmd, self._baseline_runs)
-            baseline_score = compute_baseline_score(baseline)
-            evaluated.add("baseline")
+            try:
+                baseline = run_baseline(repo, self._test_cmd, self._baseline_runs)
+                baseline_score = compute_baseline_score(baseline, scoring)
+                evaluated.add("baseline")
+            except Exception:
+                logger.exception("Step 2 (Baseline) failed")
 
         # Step 3: Mutate
-        mutations = []
+        mutations: list = []
         mutation_score = 100.0
         if not self._skip_mutations and py_files:
-            mutations = run_mutations(repo, py_files, self._mutation_timeout)
-            mutation_score = compute_mutation_score(mutations)
-            evaluated.add("mutation")
+            try:
+                mutations = run_mutations(repo, py_files, self._mutation_timeout)
+                mutation_score = compute_mutation_score(mutations)
+                evaluated.add("mutation")
+            except Exception:
+                logger.exception("Step 3 (Mutation) failed")
 
         # Step 4: Static analysis (only if Python files changed)
-        static_findings = []
+        static_findings: list = []
         static_score = 100.0
         if py_files:
-            static_findings = run_static_analysis(repo, py_files, self._static_timeout)
-            static_score = compute_static_score(static_findings, len(py_files))
+            try:
+                static_findings = run_static_analysis(repo, py_files, self._static_timeout)
+                static_score = compute_static_score(static_findings, len(py_files), scoring)
+            except Exception:
+                logger.exception("Step 4 (Static Analysis) failed")
 
         # Step 5: Sentinel
-        with SentinelBridge(repo) as bridge:
-            sentinel_signals = bridge.get_risk_signals(all_files)
+        sentinel_signals = SentinelSignals()
+        try:
+            with SentinelBridge(repo) as bridge:
+                sentinel_signals = bridge.get_risk_signals(all_files)
+        except Exception:
+            logger.exception("Step 5 (Sentinel) failed")
 
-        sentinel_risk_score = compute_risk_score(sentinel_signals)
+        sentinel_risk_score = compute_risk_score(sentinel_signals, scoring)
         co_change_score = compute_co_change_score(sentinel_signals, all_files)
 
         # Step 6: Report
@@ -124,6 +144,7 @@ class VerdictEngine:
             baseline=baseline,
             sentinel_signals=sentinel_signals,
             evaluated_dimensions=evaluated,
+            scoring=scoring,
         )
 
         # Step 7: Persist
@@ -164,6 +185,7 @@ class VerdictEngine:
             baseline=None,
             sentinel_signals=SentinelSignals(),
             evaluated_dimensions={"mutation"},
+            scoring=self._config.scoring,
         )
 
         self._store.save_assessment(report)
@@ -187,4 +209,5 @@ class VerdictEngine:
             static_findings=[],
             baseline=None,
             sentinel_signals=SentinelSignals(),
+            scoring=self._config.scoring,
         )
