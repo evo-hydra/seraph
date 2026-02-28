@@ -124,7 +124,7 @@ class TestEndToEnd:
         parsed = json.loads(report_json)
         assert "overall_grade" in parsed
         assert "dimensions" in parsed
-        assert len(parsed["dimensions"]) == 5
+        assert len(parsed["dimensions"]) == 6
 
     def test_assess_no_changes(self, tmp_path: Path):
         """Assessing HEAD with no diff returns perfect score."""

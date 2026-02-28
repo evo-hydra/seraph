@@ -134,15 +134,15 @@ class TestBuildReport:
             mutations=[MutationResult(status=MutantStatus.SURVIVED)],
             static_findings=[StaticFinding(severity=Severity.LOW)],
         )
-        # 50*0.3 + 80*0.2 + 100*0.15 + 70*0.2 + 60*0.15
-        # = 15 + 16 + 15 + 14 + 9 = 69
-        assert report.overall_score == 69.0
+        # 50*0.25 + 80*0.2 + 100*0.1 + 70*0.2 + 60*0.1 + 100*0.15
+        # = 12.5 + 16 + 10 + 14 + 6 + 15 = 73.5
+        assert report.overall_score == 73.5
         assert report.overall_grade == Grade.C
         assert len(report.gaps) > 0
 
     def test_dimensions_count(self):
         report = _build(files_changed=[])
-        assert len(report.dimensions) == 5
+        assert len(report.dimensions) == 6
 
     def test_weights_sum_to_one(self):
         total = sum(DIMENSION_WEIGHTS.values())
@@ -163,7 +163,7 @@ class TestBuildReport:
         assert d["ref_before"] == "abc"
         assert d["ref_after"] == "def"
         assert d["overall_grade"] == "A"
-        assert len(d["dimensions"]) == 5
+        assert len(d["dimensions"]) == 6
 
     def test_f_grade_threshold(self):
         report = _build(

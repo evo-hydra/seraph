@@ -31,11 +31,12 @@ class ScoringConfig:
     """Scoring weights, thresholds, and constants."""
 
     # Dimension weights (must sum to 1.0)
-    mutation_weight: float = 0.30
+    mutation_weight: float = 0.25
     static_weight: float = 0.20
-    baseline_weight: float = 0.15
+    baseline_weight: float = 0.10
     sentinel_risk_weight: float = 0.20
-    co_change_weight: float = 0.15
+    co_change_weight: float = 0.10
+    security_weight: float = 0.15
 
     # Grade thresholds (A >= t1, B >= t2, C >= t3, D >= t4, F < t4)
     grade_a: float = 90.0
@@ -58,6 +59,9 @@ class ScoringConfig:
     severity_low: int = 1
     severity_info: int = 0
 
+    # Security analysis thresholds
+    security_issue_threshold: float = 5.0
+
     @property
     def dimension_weights(self) -> dict[str, float]:
         return {
@@ -66,6 +70,7 @@ class ScoringConfig:
             "baseline": self.baseline_weight,
             "sentinel_risk": self.sentinel_risk_weight,
             "co_change": self.co_change_weight,
+            "security": self.security_weight,
         }
 
     @property
@@ -81,6 +86,23 @@ class ScoringConfig:
     @property
     def grade_thresholds(self) -> tuple[float, float, float, float]:
         return (self.grade_a, self.grade_b, self.grade_c, self.grade_d)
+
+
+@dataclass(frozen=True)
+class SecurityConfig:
+    """Security analysis settings."""
+
+    timeout: int = 120
+    bandit_enabled: bool = True
+    semgrep_enabled: bool = True
+    detect_secrets_enabled: bool = True
+    semgrep_rules: str = "auto"
+    # Glob patterns to exclude from detect-secrets scanning
+    detect_secrets_exclude: tuple[str, ...] = (
+        "tests/", "test_*", "**/alembic/versions/", "**/migrations/",
+    )
+    # Bandit test IDs to skip entirely (e.g., ("B101", "B110"))
+    bandit_skip: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -116,6 +138,7 @@ class SeraphConfig:
 
     timeouts: TimeoutConfig = TimeoutConfig()
     scoring: ScoringConfig = ScoringConfig()
+    security: SecurityConfig = SecurityConfig()
     pipeline: PipelineConfig = PipelineConfig()
     retention: RetentionConfig = RetentionConfig()
     logging: LogConfig = LogConfig()
@@ -137,6 +160,7 @@ class SeraphConfig:
         return cls(
             timeouts=_build_section(TimeoutConfig, toml_data.get("timeouts", {}), "SERAPH_TIMEOUT"),
             scoring=_build_section(ScoringConfig, toml_data.get("scoring", {}), "SERAPH_SCORING"),
+            security=_build_section(SecurityConfig, toml_data.get("security", {}), "SERAPH_SECURITY"),
             pipeline=_build_section(PipelineConfig, toml_data.get("pipeline", {}), "SERAPH_PIPELINE"),
             retention=_build_section(RetentionConfig, toml_data.get("retention", {}), "SERAPH_RETENTION"),
             logging=_build_section(LogConfig, toml_data.get("logging", {}), "SERAPH_LOG"),
@@ -153,7 +177,11 @@ def _build_section(cls: type, toml_dict: dict, env_prefix: str):
         if env_val is not None:
             kwargs[f.name] = _coerce(env_val, f.type)
         elif f.name in toml_dict:
-            kwargs[f.name] = toml_dict[f.name]
+            val = toml_dict[f.name]
+            # TOML arrays arrive as lists; coerce to tuple for frozen dataclasses
+            if isinstance(val, list) and "tuple" in str(f.type):
+                val = tuple(val)
+            kwargs[f.name] = val
         # else: use dataclass default
 
     return cls(**kwargs)

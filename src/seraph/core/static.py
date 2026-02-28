@@ -8,6 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from seraph.core.paths import to_relative
 from seraph.models.assessment import StaticFinding
 from seraph.models.enums import AnalyzerType, Severity
 
@@ -89,7 +90,7 @@ def _run_ruff(repo_path: Path, abs_files: list[str], timeout: int) -> list[Stati
         if result.stdout:
             issues = json.loads(result.stdout)
             for issue in issues:
-                rel_path = _to_relative(issue.get("filename", ""), repo_path)
+                rel_path = to_relative(issue.get("filename", ""), repo_path)
                 findings.append(
                     StaticFinding(
                         file_path=rel_path,
@@ -138,7 +139,7 @@ def _parse_mypy_line(line: str, repo_path: Path) -> StaticFinding | None:
     if len(parts) < 4:
         return None
 
-    file_path = _to_relative(parts[0].strip(), repo_path)
+    file_path = to_relative(parts[0].strip(), repo_path)
     try:
         line_number = int(parts[1].strip())
     except ValueError:
@@ -171,14 +172,6 @@ def _parse_mypy_line(line: str, repo_path: Path) -> StaticFinding | None:
         severity=severity,
         analyzer=AnalyzerType.MYPY,
     )
-
-
-def _to_relative(path: str, repo_path: Path) -> str:
-    """Convert absolute path to relative."""
-    try:
-        return str(Path(path).relative_to(repo_path))
-    except ValueError:
-        return path
 
 
 def _ruff_severity(code: str) -> Severity:

@@ -55,6 +55,22 @@ class StaticFinding:
 
 
 @dataclass
+class SecurityFinding:
+    """A single finding from security analysis (bandit/semgrep/detect-secrets)."""
+
+    file_path: str = ""
+    line_number: int = 0
+    column: int = 0
+    code: str = ""
+    message: str = ""
+    severity: Severity = Severity.MEDIUM
+    analyzer: AnalyzerType = AnalyzerType.BANDIT
+    cwe_id: str = ""
+    confidence: str = ""
+    source_line: str = ""
+
+
+@dataclass
 class BaselineResult:
     """Result of flakiness baseline testing."""
 
@@ -150,6 +166,7 @@ class AssessmentReport:
     gaps: list[str] = field(default_factory=list)
     mutations: list[MutationResult] = field(default_factory=list)
     static_findings: list[StaticFinding] = field(default_factory=list)
+    security_findings: list[SecurityFinding] = field(default_factory=list)
     baseline: BaselineResult | None = None
     sentinel_signals: SentinelSignals = field(default_factory=SentinelSignals)
     created_at: str = field(default_factory=_utcnow)
@@ -180,6 +197,7 @@ class AssessmentReport:
             "static_issues": self.static_issues,
             "sentinel_warnings": self.sentinel_warnings,
             "baseline_flaky": self.baseline_flaky,
+            "security_issues": len(self.security_findings),
             "gaps": self.gaps,
             "created_at": self.created_at,
         }

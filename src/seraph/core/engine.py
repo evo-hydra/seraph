@@ -16,8 +16,10 @@ from seraph.core.reporter import (
     compute_co_change_score,
     compute_mutation_score,
     compute_risk_score,
+    compute_security_score,
     compute_static_score,
 )
+from seraph.core.security import run_security_analysis
 from seraph.core.static import run_static_analysis
 from seraph.core.store import SeraphStore
 from seraph.models.assessment import (
@@ -128,6 +130,21 @@ class SeraphEngine:
             except Exception:
                 logger.exception("Step 4 (Static Analysis) failed")
 
+        # Step 4.5: Security analysis
+        security_findings: list = []
+        security_score = 100.0
+        if py_files:
+            try:
+                sec_result = run_security_analysis(repo, py_files, self._config.security)
+                security_findings = sec_result.findings
+                if security_findings or any(sec_result.tools_available.values()):
+                    security_score = compute_security_score(
+                        security_findings, len(py_files), scoring,
+                    )
+                    evaluated.add("security")
+            except Exception:
+                logger.exception("Step 4.5 (Security) failed")
+
         # Step 5: Sentinel
         sentinel_signals = SentinelSignals()
         try:
@@ -150,8 +167,10 @@ class SeraphEngine:
             baseline_score=baseline_score,
             sentinel_risk_score=sentinel_risk_score,
             co_change_score=co_change_score,
+            security_score=security_score,
             mutations=mutations,
             static_findings=static_findings,
+            security_findings=security_findings,
             baseline=baseline,
             sentinel_signals=sentinel_signals,
             evaluated_dimensions=evaluated,

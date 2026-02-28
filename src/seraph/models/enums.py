@@ -45,6 +45,9 @@ class AnalyzerType(str, Enum):
 
     RUFF = "ruff"
     MYPY = "mypy"
+    BANDIT = "bandit"
+    SEMGREP = "semgrep"
+    DETECT_SECRETS = "detect-secrets"
 
 
 class FeedbackOutcome(str, Enum):

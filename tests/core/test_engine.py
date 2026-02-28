@@ -11,9 +11,10 @@ from seraph.config import SeraphConfig, TimeoutConfig, ScoringConfig
 from seraph.core.differ import DiffResult, FileChange
 from seraph.core.engine import SeraphEngine
 from seraph.core.mutator import MutationRunResult
+from seraph.core.security import SecurityRunResult
 from seraph.core.static import StaticRunResult
 from seraph.core.store import SeraphStore
-from seraph.models.assessment import MutationResult, BaselineResult, StaticFinding
+from seraph.models.assessment import MutationResult, BaselineResult, SecurityFinding, StaticFinding
 from seraph.models.enums import AnalyzerType, Grade, MutantStatus, Severity
 
 
@@ -31,12 +32,13 @@ class TestSeraphEngine:
         saved = store.get_assessment(report.id)
         assert saved is not None
 
+    @patch("seraph.core.engine.run_security_analysis")
     @patch("seraph.core.engine.run_static_analysis")
     @patch("seraph.core.engine.run_mutations")
     @patch("seraph.core.engine.run_baseline")
     @patch("seraph.core.engine.parse_diff")
     def test_full_pipeline(
-        self, mock_diff, mock_baseline, mock_mutate, mock_static,
+        self, mock_diff, mock_baseline, mock_mutate, mock_static, mock_security,
         store: SeraphStore, tmp_repo: Path
     ):
         mock_diff.return_value = DiffResult(
@@ -52,6 +54,7 @@ class TestSeraphEngine:
             tool_available=True,
         )
         mock_static.return_value = StaticRunResult(findings=[], tool_config={"ruff": False, "mypy": False})
+        mock_security.return_value = SecurityRunResult(findings=[], tools_available={"bandit": True})
 
         engine = SeraphEngine(store)
         report = engine.assess(tmp_repo)
@@ -59,9 +62,9 @@ class TestSeraphEngine:
         assert report.files_changed == ["src/foo.py"]
         assert report.overall_grade == Grade.A
 
-        # All dimensions should be evaluated
+        # All 6 dimensions should be evaluated
         evaluated = [d for d in report.dimensions if d.evaluated]
-        assert len(evaluated) == 5
+        assert len(evaluated) == 6
 
         # Verify persisted
         saved = store.get_assessment(report.id)
@@ -147,11 +150,12 @@ class TestSeraphEngine:
         # Should still work (empty diff = grade A)
         assert report.overall_grade == Grade.A
 
+    @patch("seraph.core.engine.run_security_analysis")
     @patch("seraph.core.engine.run_static_analysis")
     @patch("seraph.core.engine.run_baseline")
     @patch("seraph.core.engine.parse_diff")
     def test_step_failure_doesnt_crash_pipeline(
-        self, mock_diff, mock_baseline, mock_static,
+        self, mock_diff, mock_baseline, mock_static, mock_security,
         store: SeraphStore, tmp_repo: Path
     ):
         """A single step failure doesn't crash the entire pipeline."""
@@ -161,6 +165,7 @@ class TestSeraphEngine:
         # Baseline raises, but pipeline should continue
         mock_baseline.side_effect = RuntimeError("baseline boom")
         mock_static.return_value = StaticRunResult(findings=[], tool_config={"ruff": False, "mypy": False})
+        mock_security.return_value = SecurityRunResult(findings=[], tools_available={"bandit": True})
 
         engine = SeraphEngine(store, skip_mutations=True)
         report = engine.assess(tmp_repo)
@@ -195,6 +200,61 @@ class TestSeraphEngine:
 
         evaluated_names = {d.name for d in report.dimensions if d.evaluated}
         assert "Mutation Score" not in evaluated_names
+
+    @patch("seraph.core.engine.run_security_analysis")
+    @patch("seraph.core.engine.run_static_analysis")
+    @patch("seraph.core.engine.parse_diff")
+    def test_security_failure_doesnt_crash(
+        self, mock_diff, mock_static, mock_security,
+        store: SeraphStore, tmp_repo: Path
+    ):
+        """Security step exception doesn't crash the pipeline."""
+        mock_diff.return_value = DiffResult(
+            files=[FileChange(path="src/foo.py")],
+        )
+        mock_static.return_value = StaticRunResult(findings=[], tool_config={"ruff": False, "mypy": False})
+        mock_security.side_effect = RuntimeError("security boom")
+
+        engine = SeraphEngine(store, skip_baseline=True, skip_mutations=True)
+        report = engine.assess(tmp_repo)
+
+        assert report is not None
+        evaluated_names = {d.name for d in report.dimensions if d.evaluated}
+        assert "Security" not in evaluated_names
+
+    @patch("seraph.core.engine.run_security_analysis")
+    @patch("seraph.core.engine.run_static_analysis")
+    @patch("seraph.core.engine.run_mutations")
+    @patch("seraph.core.engine.parse_diff")
+    def test_full_pipeline_with_security_findings(
+        self, mock_diff, mock_mutate, mock_static, mock_security,
+        store: SeraphStore, tmp_repo: Path
+    ):
+        """Pipeline with security findings produces 6 evaluated dimensions."""
+        mock_diff.return_value = DiffResult(
+            files=[FileChange(path="src/foo.py")],
+        )
+        mock_mutate.return_value = MutationRunResult(
+            results=[MutationResult(status=MutantStatus.KILLED)],
+            tool_available=True,
+        )
+        mock_static.return_value = StaticRunResult(findings=[], tool_config={"ruff": False, "mypy": False})
+        mock_security.return_value = SecurityRunResult(
+            findings=[
+                SecurityFinding(code="B608", cwe_id="CWE-89", severity=Severity.HIGH),
+            ],
+            tools_available={"bandit": True},
+        )
+
+        engine = SeraphEngine(store, skip_baseline=True)
+        report = engine.assess(tmp_repo)
+
+        evaluated_names = {d.name for d in report.dimensions if d.evaluated}
+        assert "Security" in evaluated_names
+        # Security score should be below 100 due to findings
+        security_dim = next(d for d in report.dimensions if d.name == "Security")
+        assert security_dim.raw_score < 100.0
+        assert len(report.security_findings) == 1
 
     @patch("seraph.core.engine.run_static_analysis")
     @patch("seraph.core.engine.run_mutations")

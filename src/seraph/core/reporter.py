@@ -1,7 +1,8 @@
-"""Multi-metric report generation with 5-dimension scoring.
+"""Multi-metric report generation with 6-dimension scoring.
 
 All scoring logic is consolidated here — baseline, mutation, static,
-sentinel risk, and co-change coverage scores are all computed in this module.
+security, sentinel risk, and co-change coverage scores are all computed
+in this module.
 """
 
 from __future__ import annotations
@@ -17,9 +18,11 @@ from seraph.models.assessment import (
     MissingCoChange,
     MutationResult,
     PitfallMatch,
+    SecurityFinding,
     SentinelSignals,
     StaticFinding,
 )
+from seraph.core.security import cwe_weight
 from seraph.models.enums import Grade, MutantStatus, Severity
 
 logger = logging.getLogger(__name__)
@@ -27,11 +30,12 @@ logger = logging.getLogger(__name__)
 # ── Weight Configuration (defaults — overridden by ScoringConfig) ──
 
 DIMENSION_WEIGHTS = {
-    "mutation": 0.30,
+    "mutation": 0.25,
     "static": 0.20,
-    "baseline": 0.15,
+    "baseline": 0.10,
     "sentinel_risk": 0.20,
-    "co_change": 0.15,
+    "co_change": 0.10,
+    "security": 0.15,
 }
 
 # ── Scoring Constants (defaults — overridden by ScoringConfig) ─────
@@ -91,6 +95,29 @@ def compute_static_score(
     issues_per_file = weighted_issues / file_count
 
     threshold = scoring.static_issue_threshold if scoring else STATIC_ISSUE_THRESHOLD
+    score = 100.0 / (1.0 + issues_per_file / threshold)
+    return round(score, 1)
+
+
+def compute_security_score(
+    findings: list[SecurityFinding], file_count: int, scoring: ScoringConfig | None = None
+) -> float:
+    """Compute security score (0-100) with CWE tier weighting.
+
+    Uses the same asymptotic curve as static score but applies CWE tier
+    multipliers so critical vulnerability classes (SQLi, XSS) deduct more.
+    """
+    if file_count == 0:
+        return 100.0
+
+    sev_weights = _get_severity_weights(scoring)
+    weighted_issues = sum(
+        sev_weights.get(f.severity, 1) * cwe_weight(f.cwe_id)
+        for f in findings
+    )
+    issues_per_file = weighted_issues / file_count
+
+    threshold = scoring.security_issue_threshold if scoring else 5.0
     score = 100.0 / (1.0 + issues_per_file / threshold)
     return round(score, 1)
 
@@ -164,8 +191,10 @@ def build_report(
     baseline_score: float,
     sentinel_risk_score: float,
     co_change_score: float,
+    security_score: float = 100.0,
     mutations: list[MutationResult],
     static_findings: list[StaticFinding],
+    security_findings: list[SecurityFinding] | None = None,
     baseline: BaselineResult | None,
     sentinel_signals: SentinelSignals,
     evaluated_dimensions: set[str] | None = None,
@@ -178,13 +207,14 @@ def build_report(
     Args:
         evaluated_dimensions: Set of dimension keys that were actually evaluated.
             If None, all dimensions are considered evaluated.
-            Valid keys: "mutation", "static", "baseline", "sentinel_risk", "co_change"
+            Valid keys: "mutation", "static", "baseline", "sentinel_risk", "co_change", "security"
         scoring: Optional scoring configuration. Uses module defaults if None.
     """
-    all_dims = {"mutation", "static", "baseline", "sentinel_risk", "co_change"}
+    all_dims = {"mutation", "static", "baseline", "sentinel_risk", "co_change", "security"}
     evaluated = evaluated_dimensions if evaluated_dimensions is not None else all_dims
     weights = scoring.dimension_weights if scoring else DIMENSION_WEIGHTS
     thresholds = scoring.grade_thresholds if scoring else None
+    sec_findings = security_findings or []
 
     dimensions = [
         _score_dimension("Mutation Score", mutation_score, weights["mutation"],
@@ -199,6 +229,8 @@ def build_report(
                          _sentinel_details(sentinel_signals), "sentinel_risk" in evaluated, thresholds),
         _score_dimension("Co-change Coverage", co_change_score, weights["co_change"],
                          _cochange_details(sentinel_signals), "co_change" in evaluated, thresholds),
+        _score_dimension("Security", security_score, weights["security"],
+                         _security_details(sec_findings), "security" in evaluated, thresholds),
     ]
 
     # Overall score only considers evaluated dimensions, re-weighted
@@ -233,6 +265,7 @@ def build_report(
         gaps=gaps,
         mutations=mutations,
         static_findings=static_findings,
+        security_findings=sec_findings,
         baseline=baseline,
         sentinel_signals=sentinel_signals,
     )
@@ -332,6 +365,26 @@ def _sentinel_details(signals: SentinelSignals) -> str:
     if not parts:
         return "No risk signals"
     return ", ".join(parts)
+
+
+def _security_details(findings: list[SecurityFinding]) -> str:
+    if not findings:
+        return "No security issues found"
+    by_analyzer: dict[str, int] = {}
+    cwe_counts: dict[str, int] = {}
+    for f in findings:
+        by_analyzer[f.analyzer.value] = by_analyzer.get(f.analyzer.value, 0) + 1
+        if f.cwe_id:
+            cwe_counts[f.cwe_id] = cwe_counts.get(f.cwe_id, 0) + 1
+    parts: list[str] = []
+    for k, v in sorted(by_analyzer.items()):
+        parts.append(f"{v} {k}")
+    detail = ", ".join(parts)
+    if cwe_counts:
+        top_cwes = sorted(cwe_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+        cwe_str = ", ".join(f"{c}({n})" for c, n in top_cwes)
+        detail += f" | top CWEs: {cwe_str}"
+    return detail
 
 
 def _cochange_details(signals: SentinelSignals) -> str:
