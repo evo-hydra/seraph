@@ -356,6 +356,63 @@ class TestFilterFindings:
         result = _filter_findings([finding], self._config())
         assert result == []
 
+    def test_drops_get_lookup_cwe259(self):
+        """B105 with .get() dict lookup should be dropped."""
+        finding = SecurityFinding(
+            code="B105", cwe_id="CWE-259",
+            source_line="password = config.get('db_password', '')",
+        )
+        result = _filter_findings([finding], self._config())
+        assert result == []
+
+    def test_drops_getenv_cwe259(self):
+        """B106 with getenv should be dropped."""
+        finding = SecurityFinding(
+            code="B106", cwe_id="CWE-259",
+            source_line="connect(password=os.getenv('DB_PASS', 'fallback'))",
+        )
+        result = _filter_findings([finding], self._config())
+        assert result == []
+
+    def test_drops_empty_default_cwe259(self):
+        """B107 with empty string default should be dropped."""
+        finding = SecurityFinding(
+            code="B107", cwe_id="CWE-259",
+            source_line="def connect(password=''):",
+        )
+        result = _filter_findings([finding], self._config())
+        assert result == []
+
+    def test_drops_none_default_cwe259(self):
+        """B107 with None default should be dropped."""
+        finding = SecurityFinding(
+            code="B107", cwe_id="CWE-259",
+            source_line="def connect(password=None):",
+        )
+        result = _filter_findings([finding], self._config())
+        assert result == []
+
+    def test_drops_truthiness_check_cwe259(self):
+        """B105 in an if-check context should be dropped."""
+        finding = SecurityFinding(
+            code="B105", cwe_id="CWE-259",
+            source_line="if password:",
+        )
+        result = _filter_findings([finding], self._config())
+        assert result == []
+
+    def test_default_bandit_skip_drops_b101_b110(self):
+        """Default config skips B101 (assert) and B110 (try/except/pass)."""
+        findings = [
+            SecurityFinding(code="B101", cwe_id="CWE-703"),
+            SecurityFinding(code="B110", cwe_id="CWE-390"),
+            SecurityFinding(code="B608", cwe_id="CWE-89"),
+        ]
+        # Default config now includes B101, B110 in bandit_skip
+        result = _filter_findings(findings, self._config())
+        assert len(result) == 1
+        assert result[0].code == "B608"
+
 
 class TestDetectSecretsExclusion:
     """Tests for detect-secrets path exclusion."""

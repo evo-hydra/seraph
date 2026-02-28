@@ -101,8 +101,9 @@ class SecurityConfig:
     detect_secrets_exclude: tuple[str, ...] = (
         "tests/", "test_*", "**/alembic/versions/", "**/migrations/",
     )
-    # Bandit test IDs to skip entirely (e.g., ("B101", "B110"))
-    bandit_skip: tuple[str, ...] = ()
+    # Bandit test IDs to skip entirely — B101 (assert) and B110
+    # (try/except/pass) are informational noise in nearly all codebases
+    bandit_skip: tuple[str, ...] = ("B101", "B110")
 
 
 @dataclass(frozen=True)

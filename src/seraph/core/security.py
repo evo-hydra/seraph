@@ -298,8 +298,23 @@ def _run_detect_secrets(
 # Bandit test IDs for hardcoded password checks (CWE-259)
 _CWE259_CODES = frozenset({"B105", "B106", "B107"})
 
-# Regex for comparison operators that indicate checking, not assigning
-_COMPARISON_RE = re.compile(r"[!=]=")
+# Patterns in source_line that indicate non-hardcoded-credential contexts:
+# comparison checks, dict lookups, env reads, empty/None defaults
+_CWE259_FP_RE = re.compile(
+    r"[!=]="              # == or != comparison
+    r"|\.get\s*\("        # dict .get() lookup
+    r"|\.pop\s*\("        # dict .pop() with default
+    r"|\.setdefault\s*\(" # dict .setdefault()
+    r"|getenv\s*\("       # os.getenv() fallback
+    r"|environ\b"         # os.environ access
+    r"|=\s*[\"'][\"']"    # empty string assignment: = "" or = ''
+    r"|=\s*None\b"        # None default: = None
+    r"|\bif\s+"           # truthiness check: if password:
+    r"|\bassert\b"        # assertion about the value
+    r"|\braise\b"         # raising with the value
+    r"|\blen\s*\(",       # length check: len(password)
+    re.IGNORECASE,
+)
 
 # Context words that indicate non-cryptographic use of random()
 _RANDOM_BENIGN_CONTEXT = re.compile(r"jitter|retry|backoff|sleep", re.IGNORECASE)
@@ -340,9 +355,9 @@ def _filter_findings(
         if f.code in config.bandit_skip:
             continue
 
-        # CWE-259 comparison suppression: drop B105/B106/B107 where source
-        # contains == or != (checking a default value, not using one)
-        if f.code in _CWE259_CODES and _COMPARISON_RE.search(f.source_line):
+        # CWE-259 suppression: drop B105/B106/B107 where source indicates
+        # non-credential context (comparisons, lookups, empty defaults, etc.)
+        if f.code in _CWE259_CODES and _CWE259_FP_RE.search(f.source_line):
             continue
 
         # CWE-330 non-crypto suppression: drop B311 in demo/test files or
