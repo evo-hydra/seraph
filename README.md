@@ -118,6 +118,20 @@ seraph prune [repo_path]     # Delete old data (--days N --yes)
 - **ruff** — Fast Python linter
 - **mypy** — Type checker
 
+## Part of the EvoIntel MCP Suite
+
+Seraph solves **AI Blindness #4: Code Quality** — mutation survival, flaky tests, and risk signals that "all tests pass" will never reveal.
+
+Part of the [EvoIntel MCP Suite](https://evolvingintelligence.ai) by Evolving Intelligence AI: five tools for five blindnesses no model improvement will ever fix.
+
+| Tool | Blindness | Install |
+|------|-----------|---------|
+| [Sentinel](https://github.com/evo-hydra/sentinel) | Project History | `pip install git-sentinel` |
+| [Niobe](https://github.com/evo-hydra/niobe) | Runtime Behavior | `pip install niobe` |
+| [Merovingian](https://github.com/evo-hydra/merovingian) | Cross-Service Dependencies | `pip install merovingian` |
+| **Seraph** | Code Quality | `pip install seraph-ai` |
+| [Anno](https://github.com/evo-hydra/anno) | Web Content | `npm install -g @evointel/anno` |
+
 ## License
 
 MIT
